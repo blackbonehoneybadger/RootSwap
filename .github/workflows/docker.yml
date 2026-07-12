@@ -1,0 +1,59 @@
+name: docker
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate dev compose config
+        run: docker compose -f docker-compose.dev.yml config -q
+
+      - name: Validate production compose config
+        env:
+          POSTGRES_PASSWORD: ci-validation-only-pg-password
+          REDIS_PASSWORD: ci-validation-only-redis-password
+          JWT_SECRET: ci-validation-only-jwt-secret-32chars!
+          ENCRYPTION_KEY: ci-validation-only-encryption-key
+          TELEGRAM_BOT_TOKEN: 1:ci
+          PARTNER_WEBHOOK_SECRET: ci-validation-only-webhook-secret-32c
+          PUBLIC_ORIGIN: https://ci.invalid
+          MINI_APP_URL: https://ci.invalid
+          BOT_USERNAME: CiBot
+        run: docker compose -f docker-compose.prod.yml config -q
+
+      - name: Build backend image
+        run: docker build -t rootswap-backend ./backend
+
+      - name: Build bot image
+        run: docker build -t rootswap-bot ./bot
+
+      - name: Build mini-app image
+        run: docker build -t rootswap-mini-app ./mini-app
+
+      - name: Health smoke test (backend)
+        run: |
+          docker network create smoke
+          docker run -d --name pg --network smoke \
+            -e POSTGRES_USER=rootswap -e POSTGRES_PASSWORD=rootswap -e POSTGRES_DB=rootswap \
+            postgres:16-alpine
+          for i in $(seq 1 30); do
+            docker exec pg pg_isready -U rootswap && break || sleep 2
+          done
+          docker run -d --name api --network smoke -p 8000:8000 \
+            -e ENVIRONMENT=development \
+            -e DATABASE_URL=postgresql+asyncpg://rootswap:rootswap@pg:5432/rootswap \
+            -e JWT_SECRET=smoke-test-jwt-secret-32-chars-min! \
+            -e PARTNER_WEBHOOK_SECRET=smoke-test-webhook-secret-32chars \
+            -e RATE_LIMIT_ENABLED=false \
+            rootswap-backend
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8000/health && exit 0 || sleep 2
+          done
+          echo "health check failed"; docker logs api; exit 1
