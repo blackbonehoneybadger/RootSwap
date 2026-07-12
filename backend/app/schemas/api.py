@@ -98,6 +98,11 @@ class PaymentInstructionsOut(BaseModel):
     currency: str
     payment_comment: str | None
     expires_at: str
+    # Full values revealed only for MOCK/SANDBOX demo flows (never in REAL/production UI)
+    recipient_name: str | None = None
+    account_number: str | None = None
+    card_number: str | None = None
+    sbp_phone: str | None = None
 
 
 class OrderEventOut(BaseModel):

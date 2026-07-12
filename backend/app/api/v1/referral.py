@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.user import User
 from app.services.referral import get_stats
@@ -14,4 +15,4 @@ async def referral_stats(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
-    return await get_stats(session, user)
+    return await get_stats(session, user, bot_username=get_settings().telegram_bot_username)

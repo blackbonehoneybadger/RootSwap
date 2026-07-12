@@ -148,6 +148,8 @@ export function Wizard({
                 account: payoutAccount.trim(),
               }
             : null,
+        payment_method: direction === 'BUY' ? paymentMethod : null,
+        bank: direction === 'BUY' ? bank : null,
       })
       hapticSuccess()
       onOrderCreated(order)

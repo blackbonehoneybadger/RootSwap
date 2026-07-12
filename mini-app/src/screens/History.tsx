@@ -11,11 +11,12 @@ import {
 import { SourceBadge } from '../components/SourceBadge'
 
 interface HistoryProps {
+  refreshKey: number
   onOpenOrder: (orderId: string) => void
   onRepeat: (order: Order) => void
 }
 
-export function History({ onOpenOrder, onRepeat }: HistoryProps) {
+export function History({ refreshKey, onOpenOrder, onRepeat }: HistoryProps) {
   const [orders, setOrders] = useState<Order[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -34,7 +35,7 @@ export function History({ onOpenOrder, onRepeat }: HistoryProps) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [refreshKey])
 
   if (error) {
     return (

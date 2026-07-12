@@ -80,6 +80,8 @@ export interface CreateOrderRequest {
   idempotency_key: string
   wallet_address: string | null
   payout_details: PayoutDetails | null
+  payment_method?: string | null
+  bank?: string | null
 }
 
 export interface PaymentInstructions {
@@ -93,6 +95,11 @@ export interface PaymentInstructions {
   currency: string
   payment_comment: string
   expires_at: string
+  /** Full values for MOCK/SANDBOX demo flows */
+  recipient_name?: string | null
+  account_number?: string | null
+  card_number?: string | null
+  sbp_phone?: string | null
 }
 
 export interface OrderEvent {

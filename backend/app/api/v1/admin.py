@@ -7,13 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import AdminContext, admin_required
 from app.api.v1.orders import serialize_order
 from app.core.enums import ActorType, AdminRole, OrderStatus
-from app.core.errors import NotFoundError, ValidationFailedError
+from app.core.errors import NotFoundError, PartnerUnavailableError, ValidationFailedError
 from app.db.session import get_db
 from app.models.dispute import Dispute
 from app.models.order import Order
 from app.models.partner import Partner
 from app.models.risk_flag import RiskFlag
 from app.models.webhook_event import WebhookEvent
+from app.partners.base import FiatPartnerAdapter, PartnerError
 from app.partners.registry import registry
 from app.schemas.api import (
     AdminRefundRequest,
@@ -24,7 +25,9 @@ from app.schemas.api import (
 from app.services import circuit_breaker, emergency_stop
 from app.services import referral as referral_service
 from app.services.audit import write_audit
-from app.services.ledger import post_refund, reconcile
+from app.services.ledger import reconcile
+from app.services.notifications import notify_order_status
+from app.services.order_side_effects import apply_status_side_effects
 from app.services.state_machine import transition
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -104,11 +107,13 @@ async def admin_transition_order(
         target = OrderStatus(body.target_status)
     except ValueError:
         raise ValidationFailedError(f"unknown status {body.target_status}") from None
+    previous_status = order.status
     order = await transition(
         session, order, target, ActorType.ADMIN, actor_id=ctx.user.id,
         source="admin_api", message=body.reason,
         expected_version=body.expected_version,
     )
+    await apply_status_side_effects(session, order, previous_status)
     write_audit(
         session, action="admin.orders.transition", actor_user_id=ctx.user.id,
         actor_role=ctx.role.value, entity_type="order", entity_id=order.id,
@@ -126,6 +131,14 @@ async def admin_refund_order(
     session: AsyncSession = Depends(get_db),
 ):
     order = await _get_order(session, order_id)
+    adapter = registry.get_adapter(order.partner_code)
+    if isinstance(adapter, FiatPartnerAdapter) and order.partner_order_id:
+        try:
+            await adapter.request_refund(order.partner_order_id, body.reason)
+        except PartnerError as exc:
+            raise PartnerUnavailableError(f"partner refund request failed: {exc}") from exc
+
+    previous_status = order.status
     if order.status in (OrderStatus.COMPLETED, OrderStatus.DISPUTED, OrderStatus.FAILED):
         order = await transition(
             session, order, OrderStatus.REFUND_REQUESTED, ActorType.ADMIN,
@@ -139,8 +152,7 @@ async def admin_refund_order(
         session, order, OrderStatus.REFUNDED, ActorType.ADMIN,
         actor_id=ctx.user.id, source="admin_api", message=body.reason,
     )
-    await post_refund(session, order)
-    await referral_service.cancel_rewards_for_order(session, order.id)
+    await apply_status_side_effects(session, order, previous_status)
     write_audit(
         session, action="admin.orders.refund", actor_user_id=ctx.user.id,
         actor_role=ctx.role.value, entity_type="order", entity_id=order.id,
@@ -170,6 +182,7 @@ async def admin_dispute_order(
         reason=body.reason,
     )
     await session.commit()
+    await notify_order_status(session, order)
     return await serialize_order(session, order)
 
 

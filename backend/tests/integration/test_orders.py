@@ -22,7 +22,9 @@ async def test_create_buy_order_with_payment_instructions(client):
     pi = order["payment_instructions"]
     assert pi["masked_recipient_name"]
     assert pi["masked_account"].startswith("****")
-    assert "40817810000000054321" not in str(order)  # full account never exposed
+    # MOCK/SANDBOX: full requisites are revealed for demo copy-paste
+    assert pi["account_number"] == "40817810000000054321"
+    assert pi["recipient_name"]
     assert order["quote_source_type"] == "MOCK"
     statuses = [e["status"] for e in order["events"]]
     assert statuses == ["QUOTE_CONFIRMED", "AWAITING_PAYMENT"]
@@ -198,3 +200,16 @@ async def test_dispute_order(client):
         headers=headers,
     )
     assert resp.status_code == 409  # cannot dispute before payment detected
+
+
+async def test_user_cancel_order(client):
+    headers, _ = await authed_user(client)
+    quotes = await create_quote_via_api(client, headers)
+    order = await create_order_via_api(client, headers, quotes[0]["quote_id"])
+    resp = await client.post(
+        f"/api/v1/orders/{order['id']}/cancel",
+        json={},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "CANCELLED"

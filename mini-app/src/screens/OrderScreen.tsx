@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { disputeOrder, getOrder } from '../lib/api'
+import { cancelOrder, disputeOrder, getOrder } from '../lib/api'
 import type { Order } from '../lib/types'
 import {
   REFUND_STATUSES,
@@ -17,16 +17,16 @@ import { QrPlaceholder } from '../components/QrPlaceholder'
 
 const POLL_INTERVAL_MS = 5000
 
-/** Statuses in which the user may still open a dispute. */
+/** Statuses in which the user may open a dispute (matches backend state machine). */
 const DISPUTABLE = new Set([
-  'AWAITING_PAYMENT',
   'PAYMENT_DETECTED',
   'PAYMENT_CONFIRMING',
   'PROCESSING',
   'PAYOUT_SENT',
-  'FAILED',
-  'EXPIRED',
+  'COMPLETED',
 ])
+
+const CANCELLABLE = new Set(['AWAITING_PAYMENT', 'QUOTE_CONFIRMED', 'CREATED'])
 
 interface OrderScreenProps {
   orderId: string
@@ -34,10 +34,21 @@ interface OrderScreenProps {
   onBack: () => void
 }
 
+function paymentField(
+  pi: NonNullable<Order['payment_instructions']>,
+  fullKey: 'recipient_name' | 'account_number' | 'card_number' | 'sbp_phone',
+  maskedKey: 'masked_recipient_name' | 'masked_account' | 'masked_card' | 'masked_phone',
+): string | null {
+  const full = pi[fullKey]
+  if (full) return full
+  return pi[maskedKey]
+}
+
 export function OrderScreen({ orderId, initialOrder, onBack }: OrderScreenProps) {
   const [order, setOrder] = useState<Order | null>(initialOrder ?? null)
   const [error, setError] = useState<string | null>(null)
   const [disputing, setDisputing] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const timerRef = useRef<number | null>(null)
 
   const refresh = useCallback(async () => {
@@ -52,7 +63,6 @@ export function OrderScreen({ orderId, initialOrder, onBack }: OrderScreenProps)
     }
   }, [orderId])
 
-  // initial load + poll every 5s while the status is not final
   useEffect(() => {
     let cancelled = false
 
@@ -85,6 +95,20 @@ export function OrderScreen({ orderId, initialOrder, onBack }: OrderScreenProps)
     }
   }
 
+  const cancel = async () => {
+    if (!window.confirm('Отменить ордер? Это действие нельзя отменить.')) return
+    setCancelling(true)
+    try {
+      const o = await cancelOrder(orderId)
+      setOrder(o)
+      setError(null)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Не удалось отменить ордер')
+    } finally {
+      setCancelling(false)
+    }
+  }
+
   if (!order) {
     return (
       <div className="screen">
@@ -105,6 +129,10 @@ export function OrderScreen({ orderId, initialOrder, onBack }: OrderScreenProps)
 
   const pi = order.payment_instructions
   const isRefund = REFUND_STATUSES.has(order.status)
+  const recipient = pi ? paymentField(pi, 'recipient_name', 'masked_recipient_name') : null
+  const account = pi ? paymentField(pi, 'account_number', 'masked_account') : null
+  const card = pi ? paymentField(pi, 'card_number', 'masked_card') : null
+  const phone = pi ? paymentField(pi, 'sbp_phone', 'masked_phone') : null
 
   return (
     <div className="screen">
@@ -189,29 +217,32 @@ export function OrderScreen({ orderId, initialOrder, onBack }: OrderScreenProps)
               <span className="muted">Банк</span>
               <span>{pi.bank_name}</span>
             </div>
-            <div className="pay-row">
-              <span className="muted">Получатель</span>
-              <span>{pi.masked_recipient_name}</span>
-            </div>
-            {pi.masked_account && (
+            {recipient && (
+              <div className="pay-row pay-row-copy">
+                <span className="muted">Получатель</span>
+                <span>{recipient}</span>
+                <CopyButton value={recipient} small />
+              </div>
+            )}
+            {account && (
               <div className="pay-row pay-row-copy">
                 <span className="muted">Счёт</span>
-                <span className="mono-inline">{pi.masked_account}</span>
-                <CopyButton value={pi.masked_account} small />
+                <span className="mono-inline">{account}</span>
+                <CopyButton value={account} small />
               </div>
             )}
-            {pi.masked_card && (
+            {card && (
               <div className="pay-row pay-row-copy">
                 <span className="muted">Карта</span>
-                <span className="mono-inline">{pi.masked_card}</span>
-                <CopyButton value={pi.masked_card} small />
+                <span className="mono-inline">{card}</span>
+                <CopyButton value={card} small />
               </div>
             )}
-            {pi.masked_phone && (
+            {phone && (
               <div className="pay-row pay-row-copy">
                 <span className="muted">Телефон</span>
-                <span className="mono-inline">{pi.masked_phone}</span>
-                <CopyButton value={pi.masked_phone} small />
+                <span className="mono-inline">{phone}</span>
+                <CopyButton value={phone} small />
               </div>
             )}
             <div className="pay-row pay-row-copy">
@@ -285,6 +316,17 @@ export function OrderScreen({ orderId, initialOrder, onBack }: OrderScreenProps)
           )}
         </ol>
       </div>
+
+      {CANCELLABLE.has(order.status) && (
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={cancelling}
+          onClick={() => void cancel()}
+        >
+          {cancelling ? 'Отменяем…' : 'Отменить ордер'}
+        </button>
+      )}
 
       {DISPUTABLE.has(order.status) && (
         <button

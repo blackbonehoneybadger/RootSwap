@@ -22,6 +22,7 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null)
   const [user, setUser] = useState<AuthUser | null>(null)
   const [tab, setTab] = useState<Tab>('home')
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
   const [view, setView] = useState<View>({ kind: 'tabs' })
 
   useEffect(() => {
@@ -142,6 +143,7 @@ export default function App() {
             initialOrder={view.initialOrder}
             onBack={() => {
               setTab('history')
+              setHistoryRefreshKey((k) => k + 1)
               backToTabs()
             }}
           />
@@ -151,6 +153,7 @@ export default function App() {
             {tab === 'home' && <Home onStart={(d) => openWizard(d)} />}
             {tab === 'history' && (
               <History
+                refreshKey={historyRefreshKey}
                 onOpenOrder={(id) => openOrder(id)}
                 onRepeat={repeatOrder}
               />

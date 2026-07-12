@@ -153,6 +153,13 @@ export function disputeOrder(id: string, reason: string): Promise<Order> {
   })
 }
 
+export function cancelOrder(id: string): Promise<Order> {
+  return request<Order>(`/orders/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
 export function getReferralStats(): Promise<ReferralStats> {
   return request<ReferralStats>('/referral/stats')
 }

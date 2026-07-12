@@ -69,3 +69,10 @@ class RateLimitedError(DomainError):
 class WebhookRejectedError(DomainError):
     code = "webhook_rejected"
     http_status = 400
+
+
+class UnknownWebhookEventError(DomainError):
+    """Unrecognized partner event_type — must not be treated as a processed no-op."""
+
+    code = "unknown_webhook_event"
+    http_status = 422

@@ -9,6 +9,7 @@ from app.models.ledger import LedgerEntry
 from app.models.order import Order
 from app.models.referral import ReferralReward
 from tests.conftest import (
+    VALID_BTC_BECH32,
     VALID_TRON,
     authed_user,
     create_order_via_api,
@@ -62,6 +63,32 @@ async def test_rub_to_usdt_via_sbp(client, session):
     assert pi["payment_method"] == "SBP"
     assert pi["bank_name"] == "Tinkoff"
     assert pi["masked_phone"] and pi["masked_phone"].endswith("67")
+    poid = await get_partner_order_id(session, order["id"])
+    await send_webhook(client, poid, "completed")
+    detail = (await client.get(f"/api/v1/orders/{order['id']}", headers=headers)).json()
+    assert detail["status"] == "COMPLETED"
+
+
+async def test_rub_to_btc_full_mock_flow(client, session):
+    headers, _ = await authed_user(client, telegram_id=1018)
+    quotes = await create_quote_via_api(
+        client, headers, to_asset="BTC", to_network="BTC", amount_in="100000"
+    )
+    assert all(q["quote_source_type"] == "MOCK" for q in quotes)
+    resp = await client.post(
+        "/api/v1/orders",
+        json={
+            "quote_id": quotes[0]["quote_id"],
+            "idempotency_key": uuid.uuid4().hex,
+            "wallet_address": VALID_BTC_BECH32,
+            "payment_method": "bank_transfer",
+            "bank": "Sber",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    order = resp.json()
+    assert order["payment_instructions"]["payment_method"] == "bank_transfer"
     poid = await get_partner_order_id(session, order["id"])
     await send_webhook(client, poid, "completed")
     detail = (await client.get(f"/api/v1/orders/{order['id']}", headers=headers)).json()

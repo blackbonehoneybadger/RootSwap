@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
-from app.core.enums import ActorType, OrderDirection, OrderStatus
+from app.core.enums import ActorType, OrderDirection, OrderStatus, QuoteSourceType
 from app.core.errors import NotFoundError
 from app.db.session import get_db
 from app.models.dispute import Dispute
@@ -21,13 +21,45 @@ from app.schemas.api import (
 from app.security.encryption import decrypt_value
 from app.services import referral as referral_service
 from app.services.audit import write_audit
+from app.services.notifications import notify_order_status
 from app.services.order_orchestrator import (
+    cancel_user_order,
     create_order,
     get_payment_instructions_if_valid,
 )
 from app.services.state_machine import transition
 
 router = APIRouter(prefix="/orders", tags=["orders"])
+
+
+def _payment_instructions_out(
+    instructions,
+    quote_source_type: QuoteSourceType,
+) -> PaymentInstructionsOut:
+    reveal = quote_source_type in (QuoteSourceType.MOCK, QuoteSourceType.SANDBOX)
+
+    def dec(field: str) -> str | None:
+        raw = getattr(instructions, f"{field}_encrypted", None)
+        if not raw:
+            return None
+        return decrypt_value(raw)
+
+    return PaymentInstructionsOut(
+        payment_method=instructions.payment_method,
+        bank_name=instructions.bank_name,
+        masked_recipient_name=instructions.masked_recipient_name,
+        masked_account=instructions.masked_account,
+        masked_card=instructions.masked_card,
+        masked_phone=instructions.masked_phone,
+        amount=str(instructions.amount),
+        currency=instructions.currency,
+        payment_comment=instructions.payment_comment,
+        expires_at=instructions.expires_at.isoformat(),
+        recipient_name=dec("recipient_name") if reveal else None,
+        account_number=dec("account_number") if reveal else None,
+        card_number=dec("card_number") if reveal else None,
+        sbp_phone=dec("sbp_phone") if reveal else None,
+    )
 
 
 async def serialize_order(session: AsyncSession, order: Order) -> OrderOut:
@@ -45,18 +77,7 @@ async def serialize_order(session: AsyncSession, order: Order) -> OrderOut:
     instructions = await get_payment_instructions_if_valid(session, order)
     instructions_out = None
     if instructions is not None:
-        instructions_out = PaymentInstructionsOut(
-            payment_method=instructions.payment_method,
-            bank_name=instructions.bank_name,
-            masked_recipient_name=instructions.masked_recipient_name,
-            masked_account=instructions.masked_account,
-            masked_card=instructions.masked_card,
-            masked_phone=instructions.masked_phone,
-            amount=str(instructions.amount),
-            currency=instructions.currency,
-            payment_comment=instructions.payment_comment,
-            expires_at=instructions.expires_at.isoformat(),
-        )
+        instructions_out = _payment_instructions_out(instructions, order.quote_source_type)
     deposit_address = None
     deposit_network = None
     if order.direction == OrderDirection.SELL and order.wallet_address_encrypted:
@@ -110,6 +131,7 @@ async def post_order(
         payment_method=body.payment_method,
         bank=body.bank,
     )
+    await notify_order_status(session, order)
     return await serialize_order(session, order)
 
 
@@ -130,7 +152,9 @@ async def list_orders(
         .scalars()
         .all()
     )
-    return OrdersResponse(orders=[await serialize_order(session, o) for o in orders])
+    result = OrdersResponse(orders=[await serialize_order(session, o) for o in orders])
+    await session.commit()
+    return result
 
 
 async def _get_owned_order(session: AsyncSession, user: User, order_id: str) -> Order:
@@ -151,7 +175,9 @@ async def get_order(
     session: AsyncSession = Depends(get_db),
 ) -> OrderOut:
     order = await _get_owned_order(session, user, order_id)
-    return await serialize_order(session, order)
+    result = await serialize_order(session, order)
+    await session.commit()
+    return result
 
 
 @router.post("/{order_id}/dispute", response_model=OrderOut)
@@ -175,4 +201,17 @@ async def dispute_order(
         entity_type="order", entity_id=order.id, reason=body.reason,
     )
     await session.commit()
+    await notify_order_status(session, order)
+    return await serialize_order(session, order)
+
+
+@router.post("/{order_id}/cancel", response_model=OrderOut)
+async def cancel_order(
+    order_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> OrderOut:
+    order = await _get_owned_order(session, user, order_id)
+    order = await cancel_user_order(session, order, user.id)
+    await notify_order_status(session, order)
     return await serialize_order(session, order)

@@ -18,10 +18,8 @@ from app.models.order import Order
 from app.observability.metrics import metrics
 from app.partners.base import PartnerError
 from app.partners.registry import registry
-from app.services import referral as referral_service
-from app.services.ledger import post_completed_order, post_refund
-from app.services.notifications import notify_order_status
 from app.services.order_orchestrator import expire_stale_awaiting_orders
+from app.services.order_side_effects import apply_status_side_effects
 from app.services.state_machine import advance_along_happy_path, transition
 from app.services.webhook_processor import EVENT_STATUS_MAP, retry_pending_events
 
@@ -76,14 +74,8 @@ async def poll_active_orders_once(session: AsyncSession) -> int:
                 )
         except InvalidTransitionError:
             continue
-        if order.status == OrderStatus.COMPLETED and previous != OrderStatus.COMPLETED:
-            reward = await referral_service.accrue_reward_for_completed_order(session, order)
-            await post_completed_order(session, order, reward.reward_amount if reward else 0)
-        if order.status == OrderStatus.REFUNDED:
-            await post_refund(session, order)
-            await referral_service.cancel_rewards_for_order(session, order.id)
+        await apply_status_side_effects(session, order, previous)
         await session.commit()
-        await notify_order_status(session, order)
         changed += 1
         metrics.inc("polling_status_change_total")
     return changed

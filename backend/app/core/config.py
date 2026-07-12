@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
 
     notifications_enabled: bool = False
+    telegram_bot_username: str = "RootSwapBot"
 
     log_level: str = "INFO"
 

@@ -11,6 +11,8 @@ const REWARD_STATUS_LABELS: Record<string, string> = {
   PENDING: 'Ожидает',
   confirmed: 'Подтверждена',
   CONFIRMED: 'Подтверждена',
+  frozen: 'Заморожена',
+  FROZEN: 'Заморожена',
   paid: 'Выплачена',
   PAID: 'Выплачена',
   cancelled: 'Отменена',

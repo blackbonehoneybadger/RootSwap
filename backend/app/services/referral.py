@@ -57,7 +57,10 @@ def compute_reward_amount(order: Order) -> Decimal:
     settings = get_settings()
     rate = Decimal(settings.referral_reward_percent) / Decimal("100")
     if settings.referral_reward_basis == "net_margin":
-        basis = Decimal(order.service_fee)  # net margin == service fee in mock model
+        basis = max(
+            Decimal("0"),
+            Decimal(order.service_fee) - Decimal(order.partner_fee),
+        )
     else:
         basis = Decimal(order.service_fee)
     return (basis * rate).quantize(Decimal("0.01"))

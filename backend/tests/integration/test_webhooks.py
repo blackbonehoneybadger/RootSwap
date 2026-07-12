@@ -157,6 +157,27 @@ async def test_unknown_partner_rejected(client):
     assert resp.status_code == 400
 
 
+async def test_unknown_event_type_dead_letters(client, session):
+    headers, _ = await authed_user(client)
+    order = await make_order(client, headers)
+    poid = await get_partner_order_id(session, order["id"])
+    req = make_webhook_request(poid, "totally_unknown_event", event_id="evt-unknown-1")
+    resp = await client.post(
+        "/api/v1/webhooks/partners/mock_fiat_alpha",
+        content=req["content"],
+        headers=req["headers"],
+    )
+    assert resp.status_code == 200
+    event = (
+        await session.execute(
+            select(WebhookEvent).where(WebhookEvent.external_event_id == "evt-unknown-1")
+        )
+    ).scalar_one()
+    assert event.processing_status.value == "DEAD_LETTER"
+    detail = (await client.get(f"/api/v1/orders/{order['id']}", headers=headers)).json()
+    assert detail["status"] == "AWAITING_PAYMENT"
+
+
 async def test_malformed_payload_rejected(client):
     import json
 

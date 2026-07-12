@@ -19,6 +19,7 @@ from app.core.config import get_settings
 from app.core.enums import ActorType, OrderDirection, OrderStatus, QuoteSourceType
 from app.core.errors import (
     ForbiddenError,
+    InvalidTransitionError,
     NotFoundError,
     PartnerUnavailableError,
     QuoteConsumedError,
@@ -186,8 +187,6 @@ async def create_order(
         await session.flush()
         order.payment_instructions_id = instructions.id
     if result.deposit_address:
-        # deposit address for SELL: user sends crypto here (mock address)
-        order.payout_details_encrypted = order.payout_details_encrypted
         order.wallet_address_encrypted = encrypt_value(result.deposit_address)
         order.wallet_address_masked = mask_wallet(result.deposit_address)
 
@@ -252,8 +251,47 @@ async def get_payment_instructions_if_valid(
         return None
     if instructions.viewed_at is None:
         instructions.viewed_at = utcnow()
-        await session.commit()
+        await session.flush()
     return instructions
+
+
+CANCELLABLE_STATUSES = frozenset(
+    {OrderStatus.CREATED, OrderStatus.QUOTE_CONFIRMED, OrderStatus.AWAITING_PAYMENT}
+)
+
+
+async def cancel_user_order(
+    session: AsyncSession, order: Order, user_id: str
+) -> Order:
+    if order.user_id != user_id:
+        raise ForbiddenError("order belongs to another user")
+    if order.status not in CANCELLABLE_STATUSES:
+        raise InvalidTransitionError(
+            f"order in status {order.status.value} cannot be cancelled by user"
+        )
+
+    if order.partner_order_id:
+        adapter = registry.get_adapter(order.partner_code)
+        if adapter is not None:
+            try:
+                await adapter.cancel_order(order.partner_order_id)
+            except PartnerError:
+                logger.warning(
+                    "partner cancel failed",
+                    extra={"ctx": {"order_id": order.id, "partner": order.partner_code}},
+                )
+
+    order = await transition(
+        session,
+        order,
+        OrderStatus.CANCELLED,
+        ActorType.USER,
+        actor_id=user_id,
+        message="cancelled by user",
+    )
+    await session.commit()
+    metrics.inc("orders_cancelled_total", direction=order.direction.value)
+    return order
 
 
 async def expire_stale_awaiting_orders(session: AsyncSession) -> int:

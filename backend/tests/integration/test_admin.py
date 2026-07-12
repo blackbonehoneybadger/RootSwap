@@ -111,6 +111,7 @@ async def test_partner_enable_disable_and_reset(client, session):
 async def test_emergency_stop_blocks_new_orders(client, session):
     headers, _ = await authed_user(client)
     admin = await admin_headers(session, 907, role="ADMIN")
+    quotes_before_stop = await create_quote_via_api(client, headers)
     resp = await client.post(
         "/api/v1/admin/emergency-stop",
         json={"reason": "incident response drill"},
@@ -130,11 +131,55 @@ async def test_emergency_stop_blocks_new_orders(client, session):
         headers=headers,
     )
     assert resp.status_code == 503
+    # order creation blocked even with a quote obtained before the stop
+    resp = await client.post(
+        "/api/v1/orders",
+        json={
+            "quote_id": quotes_before_stop[0]["quote_id"],
+            "idempotency_key": "emergency-stop-order-block",
+            "wallet_address": "4" + "A" * 94,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 503
     # clear
     resp = await client.request("DELETE", "/api/v1/admin/emergency-stop", headers=admin)
     assert resp.status_code == 200
     quotes = await create_quote_via_api(client, headers)
     assert quotes
+
+
+async def test_admin_transition_to_completed_posts_ledger(client, session):
+    from app.models.ledger import LedgerEntry
+
+    headers, _ = await authed_user(client)
+    quotes = await create_quote_via_api(client, headers)
+    order = await create_order_via_api(client, headers, quotes[0]["quote_id"])
+    ops = await admin_headers(session, 910, role="OPERATIONS")
+    for status in (
+        "PAYMENT_DETECTED",
+        "PAYMENT_CONFIRMING",
+        "PROCESSING",
+        "PAYOUT_SENT",
+        "COMPLETED",
+    ):
+        resp = await client.post(
+            f"/api/v1/admin/orders/{order['id']}/transition",
+            json={"target_status": status, "reason": "manual completion in mock"},
+            headers=ops,
+        )
+        assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "COMPLETED"
+    postings = (
+        (
+            await session.execute(
+                select(LedgerEntry).where(LedgerEntry.order_id == order["id"])
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert any(p.posting_key.endswith("gross_service_fee") for p in postings)
 
 
 async def test_emergency_stop_requires_admin_role(client, session):

@@ -20,16 +20,14 @@ from app.core.enums import (
     OrderStatus,
     WebhookProcessingStatus,
 )
-from app.core.errors import InvalidTransitionError, WebhookRejectedError
+from app.core.errors import InvalidTransitionError, UnknownWebhookEventError, WebhookRejectedError
 from app.db.base import utcnow
 from app.models.order import Order
 from app.models.webhook_event import WebhookEvent
 from app.observability.metrics import metrics
 from app.partners.registry import registry
 from app.security.masking import mask_mapping
-from app.services import referral as referral_service
-from app.services.ledger import post_completed_order, post_refund
-from app.services.notifications import notify_order_status
+from app.services.order_side_effects import apply_status_side_effects
 from app.services.state_machine import advance_along_happy_path, transition
 
 logger = logging.getLogger(__name__)
@@ -152,6 +150,11 @@ async def _process_event(session: AsyncSession, event: WebhookEvent) -> WebhookE
         event.processed_at = utcnow()
         event.processing_error = f"noop: {exc.message}"
         metrics.inc("webhook_noop_total", partner=event.partner_code)
+    except UnknownWebhookEventError as exc:
+        event.processing_status = WebhookProcessingStatus.DEAD_LETTER
+        event.processed_at = utcnow()
+        event.processing_error = str(exc.message)[:500]
+        metrics.inc("webhook_dead_letter_total", partner=event.partner_code, reason="unknown_event")
     except Exception as exc:  # unexpected: keep for retry / dead-letter
         if event.processing_attempts >= settings.webhook_max_processing_attempts:
             event.processing_status = WebhookProcessingStatus.DEAD_LETTER
@@ -168,7 +171,7 @@ async def _process_event(session: AsyncSession, event: WebhookEvent) -> WebhookE
 async def _apply_event(session: AsyncSession, event: WebhookEvent) -> None:
     target = EVENT_STATUS_MAP.get(event.event_type)
     if target is None:
-        raise InvalidTransitionError(f"unknown event type {event.event_type}")
+        raise UnknownWebhookEventError(f"unknown event type {event.event_type}")
     if not event.partner_order_id:
         raise InvalidTransitionError("event has no partner_order_id")
 
@@ -211,16 +214,7 @@ async def _apply_event(session: AsyncSession, event: WebhookEvent) -> None:
             message=f"partner event {event.event_type}",
         )
 
-    if order.status == OrderStatus.COMPLETED and previous_status != OrderStatus.COMPLETED:
-        reward = await referral_service.accrue_reward_for_completed_order(session, order)
-        reward_amount = reward.reward_amount if reward else 0
-        await post_completed_order(session, order, reward_amount)
-    if order.status == OrderStatus.REFUNDED:
-        await post_refund(session, order)
-        await referral_service.cancel_rewards_for_order(session, order.id)
-
-    await session.commit()
-    await notify_order_status(session, order)
+    await apply_status_side_effects(session, order, previous_status)
 
 
 async def retry_pending_events(session: AsyncSession) -> int:
