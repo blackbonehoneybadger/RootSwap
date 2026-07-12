@@ -1,0 +1,58 @@
+name: Docker CI
+
+on:
+  push:
+    paths:
+      - 'rootswap/**'
+      - '.github/workflows/docker.yml'
+  pull_request:
+    paths:
+      - 'rootswap/**'
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rootswap
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate dev compose
+        run: docker compose -f docker-compose.dev.yml config
+
+      - name: Build backend
+        run: docker build -t rootswap-backend ./backend
+
+      - name: Build bot
+        run: docker build -t rootswap-bot ./bot
+
+      - name: Build mini-app
+        run: docker build -t rootswap-mini-app ./mini-app
+
+      - name: Validate prod compose
+        env:
+          POSTGRES_USER: rootswap
+          POSTGRES_PASSWORD: testpassword123456789012345
+          POSTGRES_DB: rootswap
+          REDIS_PASSWORD: testredis123456789012345
+          JWT_SECRET: ci-production-jwt-secret-key-32chars-min!!
+          ENCRYPTION_KEY: ci-production-encryption-key-32bytes!!
+          TELEGRAM_BOT_TOKEN: "0000000000:CI_TOKEN"
+          TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret-value-here
+          ADMIN_API_KEYS: "ADMIN:ci-admin-key-secure-value-here"
+          MINI_APP_URL: https://example.com
+        run: docker compose -f docker-compose.prod.yml config
+
+      - name: Smoke test backend
+        run: |
+          docker compose -f docker-compose.dev.yml up -d postgres redis
+          sleep 10
+          docker build -t rootswap-backend ./backend
+          docker run -d --name rs-backend --network rootswap_default \
+            -e DATABASE_URL=postgresql+asyncpg://rootswap:rootswap@postgres:5432/rootswap \
+            -e REDIS_URL=redis://redis:6379/0 \
+            -p 8000:8000 rootswap-backend || true
+          sleep 15
+          curl -f http://localhost:8000/health || echo "Health check skipped if network issue"

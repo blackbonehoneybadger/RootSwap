@@ -1,0 +1,38 @@
+# Environment
+.env
+.env.local
+.env.*.local
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+*.db
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Docker
+pgdata*/
+
+# Secrets
+secrets/
+*.key
+
+# OS
+.DS_Store
+Thumbs.db

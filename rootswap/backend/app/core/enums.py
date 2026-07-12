@@ -1,0 +1,103 @@
+from enum import StrEnum
+
+
+class OrderDirection(StrEnum):
+    BUY = "BUY"
+    SELL = "SELL"
+
+
+class QuoteSourceType(StrEnum):
+    MOCK = "MOCK"
+    SANDBOX = "SANDBOX"
+    REAL = "REAL"
+
+
+class OrderStatus(StrEnum):
+    CREATED = "CREATED"
+    QUOTE_CONFIRMED = "QUOTE_CONFIRMED"
+    AWAITING_PAYMENT = "AWAITING_PAYMENT"
+    PAYMENT_DETECTED = "PAYMENT_DETECTED"
+    PAYMENT_CONFIRMING = "PAYMENT_CONFIRMING"
+    PROCESSING = "PROCESSING"
+    PAYOUT_SENT = "PAYOUT_SENT"
+    COMPLETED = "COMPLETED"
+    EXPIRED = "EXPIRED"
+    FAILED = "FAILED"
+    DISPUTED = "DISPUTED"
+    REFUND_REQUESTED = "REFUND_REQUESTED"
+    REFUND_PROCESSING = "REFUND_PROCESSING"
+    REFUNDED = "REFUNDED"
+    REFUND_FAILED = "REFUND_FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class CircuitBreakerState(StrEnum):
+    CLOSED = "CLOSED"
+    OPEN = "OPEN"
+    HALF_OPEN = "HALF_OPEN"
+
+
+class LedgerEntryType(StrEnum):
+    GROSS_SERVICE_FEE = "GROSS_SERVICE_FEE"
+    PARTNER_REWARD = "PARTNER_REWARD"
+    PARTNER_COST = "PARTNER_COST"
+    NETWORK_COST = "NETWORK_COST"
+    REFERRAL_LIABILITY = "REFERRAL_LIABILITY"
+    REFERRAL_PAID = "REFERRAL_PAID"
+    REFUND_LIABILITY = "REFUND_LIABILITY"
+    REFUND_PAID = "REFUND_PAID"
+    ADJUSTMENT = "ADJUSTMENT"
+    REALIZED_NET_PROFIT = "REALIZED_NET_PROFIT"
+
+
+class AdminRole(StrEnum):
+    SUPPORT = "SUPPORT"
+    OPERATIONS = "OPERATIONS"
+    FINANCE = "FINANCE"
+    ADMIN = "ADMIN"
+
+
+class ActorType(StrEnum):
+    USER = "USER"
+    SYSTEM = "SYSTEM"
+    PARTNER = "PARTNER"
+    ADMIN = "ADMIN"
+
+
+class ReferralRewardStatus(StrEnum):
+    PENDING = "PENDING"
+    FROZEN = "FROZEN"
+    PAID = "PAID"
+    CANCELLED = "CANCELLED"
+
+
+class DisputeStatus(StrEnum):
+    OPEN = "OPEN"
+    IN_REVIEW = "IN_REVIEW"
+    RESOLVED = "RESOLVED"
+    REJECTED = "REJECTED"
+
+
+class RiskFlagStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    RESOLVED = "RESOLVED"
+    DISMISSED = "DISMISSED"
+
+
+class WebhookProcessingStatus(StrEnum):
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    PROCESSED = "PROCESSED"
+    FAILED = "FAILED"
+    DEAD_LETTER = "DEAD_LETTER"
+
+
+FINAL_ORDER_STATUSES = frozenset(
+    {
+        OrderStatus.COMPLETED,
+        OrderStatus.REFUNDED,
+        OrderStatus.FAILED,
+        OrderStatus.EXPIRED,
+        OrderStatus.CANCELLED,
+    }
+)

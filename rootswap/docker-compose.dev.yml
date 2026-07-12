@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: rootswap
+      POSTGRES_PASSWORD: rootswap
+      POSTGRES_DB: rootswap
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rootswap"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://rootswap:rootswap@postgres:5432/rootswap
+      REDIS_URL: redis://redis:6379/0
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-0000000000:DEV_TELEGRAM_BOT_TOKEN_PLACEHOLDER}
+      JWT_SECRET: rootswap-dev-jwt-secret-change-in-production
+      ENCRYPTION_KEY: dev-encryption-key-32bytes-long!!
+      ENVIRONMENT: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  bot:
+    build: ./bot
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-0000000000:DEV_TELEGRAM_BOT_TOKEN_PLACEHOLDER}
+      MINI_APP_URL: ${MINI_APP_URL:-http://localhost:5173}
+      API_URL: http://backend:8000
+    depends_on:
+      - backend
+
+  mini-app:
+    build: ./mini-app
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata_dev:

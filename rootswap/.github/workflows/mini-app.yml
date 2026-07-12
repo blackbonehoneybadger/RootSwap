@@ -1,0 +1,38 @@
+name: Mini App CI
+
+on:
+  push:
+    paths:
+      - 'rootswap/mini-app/**'
+      - '.github/workflows/mini-app.yml'
+  pull_request:
+    paths:
+      - 'rootswap/mini-app/**'
+
+defaults:
+  run:
+    working-directory: rootswap/mini-app
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: rootswap/mini-app/package-lock.json
+
+      - name: Install
+        run: npm install
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Audit
+        run: npm audit --audit-level=high
