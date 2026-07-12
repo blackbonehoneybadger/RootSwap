@@ -1,0 +1,69 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: rootswap
+      POSTGRES_PASSWORD: rootswap
+      POSTGRES_DB: rootswap
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rootswap"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+asyncpg://rootswap:rootswap@postgres:5432/rootswap
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-dev-only-jwt-secret-do-not-use-in-prod}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      PARTNER_WEBHOOK_SECRET: ${PARTNER_WEBHOOK_SECRET:-dev-only-webhook-secret-not-for-prod}
+      ALLOW_MOCK_PARTNERS: "true"
+      POLLING_ENABLED: "true"
+      CORS_ORIGINS: http://localhost:5173
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  bot:
+    build: ./bot
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      MINI_APP_URL: ${MINI_APP_URL:-https://localhost/miniapp}
+    depends_on:
+      - api
+
+  mini-app:
+    build:
+      context: ./mini-app
+      args:
+        VITE_API_BASE_URL: http://localhost:8000/api/v1
+        VITE_BOT_USERNAME: ${BOT_USERNAME:-RootSwapBot}
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata_dev:

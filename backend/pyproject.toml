@@ -1,0 +1,20 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["B008", "E501"]  # B008: FastAPI Depends in defaults; E501: long strings in tests
+
+[tool.ruff.lint.per-file-ignores]
+"tests/conftest.py" = ["E402"]  # test env vars must be set before app imports
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::sqlalchemy.exc.SAWarning",
+]
