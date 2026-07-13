@@ -42,6 +42,7 @@ from app.security.masking import (
     mask_wallet,
 )
 from app.services import emergency_stop
+from app.services.order_side_effects import apply_status_side_effects
 from app.services.state_machine import transition
 from app.services.wallet_validation import validate_wallet_address
 
@@ -318,11 +319,13 @@ async def expire_stale_awaiting_orders(session: AsyncSession) -> int:
             )
         ).scalar_one_or_none()
         if instructions and instructions.expires_at <= now:
+            previous_status = order.status
             await transition(
                 session, order, OrderStatus.EXPIRED, ActorType.SYSTEM,
                 message="payment window expired",
             )
             instructions.deleted_at = now
+            await apply_status_side_effects(session, order, previous_status)
             expired += 1
     if expired:
         await session.commit()

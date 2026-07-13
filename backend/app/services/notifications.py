@@ -20,11 +20,18 @@ logger = logging.getLogger(__name__)
 STATUS_MESSAGES = {
     OrderStatus.AWAITING_PAYMENT: "Заявка создана. Ожидаем оплату.",
     OrderStatus.PAYMENT_DETECTED: "Платёж обнаружен.",
+    OrderStatus.PAYMENT_CONFIRMING: "Платёж подтверждается.",
     OrderStatus.PROCESSING: "Заявка в обработке.",
+    OrderStatus.PAYOUT_SENT: "Выплата отправлена.",
     OrderStatus.COMPLETED: "Заявка выполнена ✅",
     OrderStatus.EXPIRED: "Срок оплаты истёк, заявка закрыта.",
+    OrderStatus.FAILED: "Заявка завершилась с ошибкой.",
+    OrderStatus.CANCELLED: "Заявка отменена.",
     OrderStatus.DISPUTED: "По заявке открыт спор.",
+    OrderStatus.REFUND_REQUESTED: "Запрошен возврат средств.",
+    OrderStatus.REFUND_PROCESSING: "Возврат в обработке.",
     OrderStatus.REFUNDED: "Возврат по заявке выполнен.",
+    OrderStatus.REFUND_FAILED: "Возврат не удался — обратитесь в поддержку.",
 }
 
 

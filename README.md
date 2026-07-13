@@ -21,8 +21,10 @@ RootSwap **никогда** не запрашивает seed-фразы или �
 - Полный пользовательский flow в Mini App: выбор направления → котировки от нескольких mock-партнёров (best / fastest / lowest fee, RootScore, разбивка комиссий, бейдж DEMO/SANDBOX/REAL) → двойное подтверждение → mock-реквизиты (СБП / банковский перевод / карта) или mock-deposit-address → статусы в реальном времени → история → рефералка.
 - Partner Engine: `FiatPartnerAdapter` / `CryptoPartnerAdapter`, `PartnerRegistry`, два детерминированных mock-партнёра + reference mock-crypto адаптер.
 - Order state machine с единым transition-сервисом, optimistic locking (`version`), audit-логом запрещённых переходов.
-- Webhooks: подпись HMAC, окно timestamp (replay-protection), дедупликация `external_event_id`, идемпотентная обработка, retry + dead-letter.
+- Webhooks: подпись HMAC, окно timestamp (replay-protection), дедупликация `external_event_id`, идемпотентная обработка, retry + dead-letter; неизвестные `event_type` → dead-letter.
 - Polling fallback для потерянных webhook'ов; авто-EXPIRED по истечении реквизитов.
+- Отмена заявки пользователем (`POST /orders/{id}/cancel`) в статусах до оплаты.
+- Telegram-уведомления о смене статуса (при `NOTIFICATIONS_ENABLED=true`).
 - Circuit breaker per-partner (CLOSED → OPEN → HALF_OPEN, состояние в БД).
 - Immutable ledger c идемпотентными posting_key; reconciliation всегда 0.
 - Одноуровневая реферальная система: начисление ровно один раз после COMPLETED, заморозка при DISPUTED, отмена при REFUND.
@@ -39,6 +41,8 @@ RootSwap **никогда** не запрашивает seed-фразы или �
 ---
 
 ## Быстрый старт (dev)
+
+> **Важно:** актуальный код — в ветке **`main`**. Ветка `cursor/rootswap-initial-e6c2` устарела (только README + ранний scaffold). Подробнее: [deploy/README.md](deploy/README.md).
 
 ### Backend
 
@@ -74,11 +78,16 @@ TELEGRAM_BOT_TOKEN=... MINI_APP_URL=https://... python bot.py
 
 ```bash
 cd backend
-pytest            # 127 тестов: unit + integration + e2e mock flows
+pytest            # 131+ тестов: unit + integration + e2e mock flows
+pytest tests/e2e  # только end-to-end mock-сценарии
 ruff check app tests
 ```
 
 Mini App: `cd mini-app && npm run typecheck && npm run build`.
+
+## Deploy
+
+Пошаговый гайд: **[deploy/README.md](deploy/README.md)** — Docker Compose prod, TLS, Telegram Bot, smoke checks, бэкапы.
 
 ## Docker
 
@@ -104,7 +113,7 @@ Production compose **не стартует** без обязательных с�
 | Утечка реквизитов/кошельков | Шифрование Fernet в БД, маскирование в API/логах, тест «sensitive values absent from logs» |
 | Злоупотребление admin-доступом | RBAC по ролям, каждый admin-вызов пишет AuditLog (actor, request_id, IP) |
 | Отказ партнёра | Circuit breaker, failover на второго партнёра, polling fallback |
-| Инцидент | Emergency stop блокирует новые котировки/заявки мгновенно |
+| Инцидент | Emergency stop блокирует новые котировки **и** заявки мгновенно |
 | Перебор API | Rate limiting (Redis) + nginx limit_req |
 
 ## Privacy limitations (честно)

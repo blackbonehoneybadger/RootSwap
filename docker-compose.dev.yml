@@ -34,6 +34,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-only-jwt-secret-do-not-use-in-prod}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-RootSwapBot}
+      NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-false}
       PARTNER_WEBHOOK_SECRET: ${PARTNER_WEBHOOK_SECRET:-dev-only-webhook-secret-not-for-prod}
       ALLOW_MOCK_PARTNERS: "true"
       POLLING_ENABLED: "true"
