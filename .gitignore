@@ -23,3 +23,5 @@ mini-app/.vite/
 .DS_Store
 
 deploy/certs/
+.venv-replit/
+rootswap.db

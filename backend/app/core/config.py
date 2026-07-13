@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     notifications_enabled: bool = False
     telegram_bot_username: str = "RootSwapBot"
 
+    # Serve the built Mini App from the API process (single-process deploys
+    # like Replit). Empty = disabled; nginx serves the SPA in docker-compose.
+    mini_app_static_dir: str = ""
+
     log_level: str = "INFO"
 
     @property
