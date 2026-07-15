@@ -69,6 +69,20 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
         run: pytest -q tests/e2e --tb=short
 
+      - name: PostgreSQL write-path smoke (real DB, not SQLite)
+        # The pytest suite runs on SQLite; this exercises the order/webhook/ledger
+        # money path against the actual production engine so Postgres-only
+        # regressions (circular FK, flush ordering, dialect types) fail CI.
+        env:
+          DATABASE_URL: postgresql+asyncpg://rootswap:rootswap@localhost:5432/rootswap_test
+          PARTNER_WEBHOOK_SECRET: pg-smoke-webhook-secret-long-enough-0
+          JWT_SECRET: pg-smoke-jwt-secret-long-enough-000000
+          REDIS_URL: redis://localhost:6379/0
+        run: |
+          alembic downgrade base
+          alembic upgrade head
+          python -m tests.postgres_smoke
+
       - name: Dependency audit (fail on high/critical)
         run: |
           pip-audit -r requirements.txt --strict \

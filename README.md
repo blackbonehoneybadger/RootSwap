@@ -89,6 +89,34 @@ Mini App: `cd mini-app && npm run typecheck && npm run build`.
 
 Пошаговый гайд: **[deploy/README.md](deploy/README.md)** — Docker Compose prod, TLS, Telegram Bot, smoke checks, бэкапы.
 
+## Запуск на Replit (демо в Telegram за 5 минут)
+
+Репозиторий готов к запуску на Replit без Docker: один процесс поднимает API,
+раздаёт собранный Mini App и запускает бота. Вместо Postgres — SQLite, вместо
+Redis — in-memory rate limiting. Режим только mock/sandbox.
+
+1. **Создайте бота**: в Telegram у [@BotFather](https://t.me/BotFather) → `/newbot`,
+   сохраните токен и username бота.
+2. **Импортируйте репозиторий в Replit**: Create Repl → Import from GitHub →
+   `blackbonehoneybadger/RootSwap`. Конфигурация подхватится из `.replit`.
+3. **Секреты** (Tools → Secrets):
+   - `TELEGRAM_BOT_TOKEN` — токен из BotFather (обязательно);
+   - `TELEGRAM_BOT_USERNAME` — username бота без @ (для реферальных ссылок);
+   - рекомендуется: `JWT_SECRET` (32+ случайных символа), `ENCRYPTION_KEY`
+     (Fernet-ключ), `PARTNER_WEBHOOK_SECRET`.
+4. **Run.** Скрипт `scripts/replit_start.sh` сам ставит зависимости, собирает
+   Mini App, прогоняет миграции и стартует бота + API. Публичный HTTPS-адрес
+   Repl'а автоматически становится `MINI_APP_URL` для кнопки бота.
+5. **Привяжите Mini App к боту**: в BotFather → `/mybots` → ваш бот →
+   Bot Settings → **Menu Button** (или `/newapp`) → укажите URL Repl'а
+   (`https://<repl>.<user>.repl.co` или домен из Deployments).
+6. Откройте бота в Telegram → `/start` → кнопка «Открыть RootSwap» → полный
+   mock-флоу (котировки, заявка, реквизиты, статусы, история, рефералка).
+
+Заметки: Free-Repl засыпает без трафика — для постоянной работы используйте
+Replit Deployments (Reserved VM; в `.replit` уже описан deployment-блок).
+Уведомления о статусах заявок включаются автоматически при наличии токена.
+
 ## Docker
 
 ```bash

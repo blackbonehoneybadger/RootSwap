@@ -1,0 +1,21 @@
+modules = ["python-3.12", "nodejs-22"]
+
+run = ["bash", "scripts/replit_start.sh"]
+entrypoint = "scripts/replit_start.sh"
+
+[nix]
+channel = "stable-24_05"
+
+[deployment]
+run = ["bash", "scripts/replit_start.sh"]
+deploymentTarget = "cloudrun"
+
+[[ports]]
+localPort = 8000
+externalPort = 80
+
+[env]
+ENVIRONMENT = "development"
+ALLOW_MOCK_PARTNERS = "true"
+POLLING_ENABLED = "true"
+RATE_LIMIT_ENABLED = "true"

@@ -1,10 +1,12 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.health import router as health_router
 from app.api.v1.admin import router as admin_router
@@ -119,6 +121,16 @@ def create_app() -> FastAPI:
     app.include_router(referral_router, prefix=prefix)
     app.include_router(webhooks_router, prefix=prefix)
     app.include_router(admin_router, prefix=prefix)
+
+    # Single-process deploys (e.g. Replit): serve the built Mini App from the
+    # API process. Mounted last so API/health routes always win.
+    if settings.mini_app_static_dir:
+        static_dir = Path(settings.mini_app_static_dir)
+        if static_dir.is_dir():
+            app.mount("/", StaticFiles(directory=static_dir, html=True), name="mini-app")
+            logger.info("serving Mini App static files from %s", static_dir)
+        else:
+            logger.warning("MINI_APP_STATIC_DIR %s does not exist, skipping", static_dir)
     return app
 
 
