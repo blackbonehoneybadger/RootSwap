@@ -1,6 +1,6 @@
 import pytest
 
-from app.core.enums import CircuitBreakerState, OrderStatus
+from app.core.enums import ActorType, CircuitBreakerState, OrderStatus
 from app.core.exceptions import InvalidTransitionError, ValidationError
 from app.security import mask_sensitive_data, validate_wallet_address
 from app.services.fees import calculate_fees, calculate_root_score
@@ -51,12 +51,55 @@ def test_invalid_wallet():
 def test_state_machine_valid():
     sm = OrderStateMachine()
     assert sm.can_transition(OrderStatus.CREATED, OrderStatus.QUOTE_CONFIRMED)
+    sm.validate_transition(OrderStatus.CREATED, OrderStatus.QUOTE_CONFIRMED, ActorType.SYSTEM, 1)
 
 
 def test_state_machine_invalid():
     sm = OrderStateMachine()
     with pytest.raises(InvalidTransitionError):
-        sm.validate_transition(OrderStatus.COMPLETED, OrderStatus.CREATED, None, 1)
+        sm.validate_transition(OrderStatus.COMPLETED, OrderStatus.CREATED, ActorType.SYSTEM, 1)
+
+
+def test_state_machine_forbids_failed_to_completed():
+    sm = OrderStateMachine()
+    with pytest.raises(InvalidTransitionError):
+        sm.validate_transition(OrderStatus.FAILED, OrderStatus.COMPLETED, ActorType.ADMIN, 1)
+
+
+def test_state_machine_forbids_cancelled_to_processing():
+    sm = OrderStateMachine()
+    with pytest.raises(InvalidTransitionError):
+        sm.validate_transition(OrderStatus.CANCELLED, OrderStatus.PROCESSING, ActorType.SYSTEM, 1)
+
+
+def test_state_machine_user_cannot_complete():
+    sm = OrderStateMachine()
+    with pytest.raises(InvalidTransitionError):
+        sm.validate_transition(
+            OrderStatus.PAYOUT_SENT, OrderStatus.COMPLETED, ActorType.USER, 1
+        )
+
+
+def test_state_machine_user_can_dispute():
+    sm = OrderStateMachine()
+    sm.validate_transition(
+        OrderStatus.PAYMENT_DETECTED, OrderStatus.DISPUTED, ActorType.USER, 1
+    )
+
+
+def test_asset_registry_rejects_solana():
+    from app.core.assets import validate_route
+    from app.core.enums import OrderDirection
+
+    with pytest.raises(ValidationError):
+        validate_route(OrderDirection.BUY, "RUB", None, "SOL", "SOL", 10000)
+
+
+def test_asset_registry_accepts_xmr():
+    from app.core.assets import validate_route
+    from app.core.enums import OrderDirection
+
+    validate_route(OrderDirection.BUY, "RUB", None, "XMR", "XMR", 10000)
 
 
 def test_mask_sensitive_data():

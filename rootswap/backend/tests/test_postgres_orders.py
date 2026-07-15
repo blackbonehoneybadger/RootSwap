@@ -38,6 +38,12 @@ requires_postgres = pytest.mark.skipif(
 @pytest.mark.asyncio(loop_scope="function")
 async def test_postgres_create_order_with_payment_instructions(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", BOT_TOKEN)
+    monkeypatch.setenv("ENABLE_DEV_ENDPOINTS", "true")
+    get_settings.cache_clear()
+    settings = get_settings()
+    settings.enable_dev_endpoints = True
+    settings.emergency_stop = False
+    settings.rate_limit_per_minute = 100_000
     get_settings.cache_clear()
     # RateLimitMiddleware caches settings at import — clear Redis counters.
     try:

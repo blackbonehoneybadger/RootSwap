@@ -33,11 +33,13 @@ def make_init_data(telegram_id: int = 12345, username: str = "testuser") -> str:
 
 
 @pytest.fixture(autouse=True)
-def reset_app_state():
+def reset_app_state(monkeypatch):
+    monkeypatch.setenv("ENABLE_DEV_ENDPOINTS", "true")
     get_settings.cache_clear()
     settings = get_settings()
     settings.emergency_stop = False
     settings.rate_limit_per_minute = 100_000
+    settings.enable_dev_endpoints = True
     try:
         import redis as sync_redis
 

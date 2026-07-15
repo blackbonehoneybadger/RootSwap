@@ -72,6 +72,8 @@ async def test_production_rejects_mock(monkeypatch, session, seed_partners):
     monkeypatch.setenv("ENCRYPTION_KEY", "production-encryption-key-32bytes!!")
     monkeypatch.setenv("REDIS_PASSWORD", "redis-prod-password")
     monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "prod-webhook-secret-value")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456789:AARealLookingBotTokenValueXXXX")
+    monkeypatch.setenv("CORS_ORIGINS", "https://app.example.com")
     from app.core.config import get_settings
 
     get_settings.cache_clear()
