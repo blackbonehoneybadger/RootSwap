@@ -43,7 +43,8 @@ class Settings(BaseSettings):
 
     jwt_secret: str = "rootswap-dev-jwt-secret-change-in-production"
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60 * 24  # 24h (not multi-day for demo sessions)
+    jwt_expire_minutes: int = 60  # 1 hour — Mini App uses sessionStorage
+
 
     encryption_key: str = "dev-encryption-key-32bytes-long!!"
     telegram_bot_token: str = "0000000000:DEV_TELEGRAM_BOT_TOKEN_PLACEHOLDER"

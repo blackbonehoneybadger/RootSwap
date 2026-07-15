@@ -56,19 +56,24 @@ export interface Order {
   payment_instructions?: PaymentInstructions;
 }
 
-let token: string | null = localStorage.getItem('rootswap_token');
+let token: string | null = sessionStorage.getItem('rootswap_token');
 
 export function setToken(t: string) {
   token = t;
-  localStorage.setItem('rootswap_token', t);
+  sessionStorage.setItem('rootswap_token', t);
+  localStorage.removeItem('rootswap_token'); // migrate off long-lived storage
 }
 
 export function clearToken() {
   token = null;
+  sessionStorage.removeItem('rootswap_token');
   localStorage.removeItem('rootswap_token');
 }
 
 export function hasToken(): boolean {
+  if (!token) {
+    token = sessionStorage.getItem('rootswap_token');
+  }
   return Boolean(token);
 }
 

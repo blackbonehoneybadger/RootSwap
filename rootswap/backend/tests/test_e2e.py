@@ -46,23 +46,34 @@ async def test_e2e_xmr_to_rub(client, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_partner_failure_before_order(client, auth_headers):
+async def test_partner_failure_on_create(client, auth_headers):
+    """Quote succeeds; create_fiat_order fails → order rolled back, no orphans."""
     quote = await client.post(
         "/api/v1/quotes",
         headers=auth_headers,
-        json={"direction": "BUY", "from_asset": "RUB", "to_asset": "USDT", "to_network": "TRC20", "amount_in": 5000, "scenario": "partner_failure"},
+        json={
+            "direction": "BUY",
+            "from_asset": "RUB",
+            "to_asset": "USDT",
+            "to_network": "TRC20",
+            "amount_in": 5000,
+            "scenario": "create_failure",
+        },
     )
     assert quote.status_code == 200
-    quotes = quote.json()["all"]
-    if not quotes:
-        pytest.skip("All partners failed as expected for quote")
+    assert quote.json()["best"] is not None
     quote_id = quote.json()["best"]["id"]
     order = await client.post(
         "/api/v1/orders",
         headers=auth_headers,
-        json={"quote_id": quote_id, "idempotency_key": str(uuid.uuid4()), "wallet_address": TRON_TEST_ADDRESS, "scenario": "partner_failure"},
+        json={
+            "quote_id": quote_id,
+            "idempotency_key": str(uuid.uuid4()),
+            "wallet_address": TRON_TEST_ADDRESS,
+            "scenario": "create_failure",
+        },
     )
-    assert order.status_code in (400, 500)
+    assert order.status_code == 400
 
 
 @pytest.mark.asyncio

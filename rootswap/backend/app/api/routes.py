@@ -51,6 +51,8 @@ def ensure_aware_pi_expired(pi: PaymentInstructions) -> bool:
 
 
 def _quote_to_response(quote) -> QuoteResponse:
+    from app.core.money import q8
+
     raw = quote.raw_partner_response or {}
     return QuoteResponse(
         id=quote.id,
@@ -60,13 +62,13 @@ def _quote_to_response(quote) -> QuoteResponse:
         from_network=quote.from_network,
         to_asset=quote.to_asset,
         to_network=quote.to_network,
-        amount_in=float(quote.amount_in),
-        amount_out=float(quote.amount_out),
-        exchange_rate=float(quote.exchange_rate),
-        service_fee=float(quote.service_fee),
-        partner_fee=float(quote.partner_fee),
-        network_fee=float(quote.network_fee),
-        total_fee=float(quote.total_fee),
+        amount_in=q8(quote.amount_in),
+        amount_out=q8(quote.amount_out),
+        exchange_rate=q8(quote.exchange_rate),
+        service_fee=q8(quote.service_fee),
+        partner_fee=q8(quote.partner_fee),
+        network_fee=q8(quote.network_fee),
+        total_fee=q8(quote.total_fee),
         root_score=float(quote.root_score),
         quote_source_type=quote.quote_source_type,
         expires_at=quote.expires_at,
@@ -87,6 +89,8 @@ def _dec(raw: str | None) -> str | None:
 def _pi_to_response(
     pi: PaymentInstructions, source: QuoteSourceType
 ) -> PaymentInstructionsResponse:
+    from app.core.money import q8
+
     reveal = source in (QuoteSourceType.MOCK, QuoteSourceType.SANDBOX)
     return PaymentInstructionsResponse(
         id=pi.id,
@@ -97,7 +101,7 @@ def _pi_to_response(
         masked_card=pi.masked_card,
         masked_phone=pi.masked_phone,
         deposit_address_masked=pi.deposit_address_masked,
-        amount=float(pi.amount),
+        amount=q8(pi.amount),
         currency=pi.currency,
         payment_comment=pi.payment_comment,
         expires_at=pi.expires_at,

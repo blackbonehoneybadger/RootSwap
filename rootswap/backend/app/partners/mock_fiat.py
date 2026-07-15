@@ -92,16 +92,17 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
         else:
             reserve = 1_000_000.0
 
+        amount_in = float(request.amount_in)
         if request.direction == OrderDirection.BUY.value:
             rate = self._rate("RUB", request.to_asset)
-            amount_out = request.amount_in * rate
+            amount_out = amount_in * rate
             network_fee = 0.0001 if request.to_asset == "BTC" else 0.01
         else:
             rate = self._rate(request.from_asset, "RUB")
-            amount_out = request.amount_in * rate
+            amount_out = amount_in * rate
             network_fee = 50.0
 
-        partner_fee = request.amount_in * 0.005
+        partner_fee = amount_in * 0.005
         if scenario == "slow_processing":
             await asyncio.sleep(0.1)
 
@@ -120,8 +121,8 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
 
     async def create_fiat_order(self, request: OrderRequest) -> OrderResult:
         scenario = self._get_scenario(request)
-        if scenario == "partner_failure":
-            raise RuntimeError("Mock partner failure before order")
+        if scenario in ("partner_failure", "create_failure"):
+            raise RuntimeError("Mock partner failure on create_fiat_order")
 
         partner_order_id = self._partner_order_id(request.idempotency_key)
         status = "awaiting_payment"
@@ -135,7 +136,7 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
             "partner_order_id": partner_order_id,
             "status": status,
             "scenario": scenario,
-            "amount_in": request.amount_in,
+            "amount_in": float(request.amount_in),
             "payment_method": request.payment_method or "SBP",
             "bank_name": request.bank_name or "Sber",
             "created_at": datetime.now(UTC).isoformat(),
@@ -149,7 +150,6 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
             payment_instructions=payment_instructions,
             raw_response=order_data,
         )
-
     async def get_payment_instructions(self, partner_order_id: str) -> PaymentInstructionsResult:
         order = self._orders.get(partner_order_id, {})
         scenario = order.get("scenario", "success")

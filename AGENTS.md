@@ -99,7 +99,13 @@ Central map: `app/services/state_machine.py` (`ALLOWED_TRANSITIONS`).
 Happy path: `CREATED → QUOTE_CONFIRMED → AWAITING_PAYMENT → … → COMPLETED`.  
 `USER` may only target `CANCELLED` / `DISPUTED`. Simulate-payment uses `SYSTEM`.
 
-## Secrets / production
+## Remaining before real money (cannot be finished in this repo alone)
 
-Never commit real secrets. Production startup rejects: weak JWT/encryption, DEV bot token,
-`CORS_ORIGINS=*`, missing Redis password, and `ENABLE_DEV_ENDPOINTS=true`.
+These require external work — **not** implemented as live REAL rails:
+
+1. Partner contracts + REAL adapters
+2. Security audit + legal/KYC review
+3. Ops on-call / insurance / reserve policy
+
+Code-side production guards already block weak secrets, MOCK in production,
+DEV endpoints, and CORS `*`.

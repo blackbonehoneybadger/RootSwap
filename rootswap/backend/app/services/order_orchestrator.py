@@ -19,11 +19,13 @@ from app.core.exceptions import (
     NotFoundError,
     ValidationError,
 )
+from app.core.money import q8
 from app.models import AuditLog, Order, OrderEvent, Partner, PaymentInstructions, Quote, User
 from app.observability.logging import get_logger
 from app.partners.base import FiatPartnerAdapter, OrderRequest
 from app.partners.registry import partner_registry
 from app.security import encrypt_value, mask_string, validate_wallet_address
+from app.services.emergency_stop import is_emergency_stopped
 from app.services.ledger import LedgerService
 from app.services.referral import ReferralService
 from app.services.state_machine import OrderStateMachine
@@ -83,7 +85,7 @@ class OrderOrchestrator:
         bank_name: str | None = None,
         scenario: str | None = None,
     ) -> Order:
-        if self.settings.emergency_stop:
+        if is_emergency_stopped():
             raise EmergencyStopError()
 
         fingerprint = build_idempotency_fingerprint(
@@ -161,13 +163,13 @@ class OrderOrchestrator:
             from_network=quote.from_network,
             to_asset=quote.to_asset,
             to_network=quote.to_network,
-            amount_in=float(quote.amount_in),
-            amount_out=float(quote.amount_out),
-            exchange_rate=float(quote.exchange_rate),
-            service_fee=float(quote.service_fee),
-            partner_fee=float(quote.partner_fee),
-            network_fee=float(quote.network_fee),
-            total_fee=float(quote.total_fee),
+            amount_in=q8(quote.amount_in),
+            amount_out=q8(quote.amount_out),
+            exchange_rate=q8(quote.exchange_rate),
+            service_fee=q8(quote.service_fee),
+            partner_fee=q8(quote.partner_fee),
+            network_fee=q8(quote.network_fee),
+            total_fee=q8(quote.total_fee),
             quote_source_type=quote.quote_source_type,
             idempotency_key=idempotency_key,
             idempotency_fingerprint=fingerprint,
@@ -200,7 +202,7 @@ class OrderOrchestrator:
             payment_method=payment_method,
             bank_name=bank_name,
             idempotency_key=idempotency_key,
-            amount_in=float(quote.amount_in),
+            amount_in=float(q8(quote.amount_in)),
             scenario=scenario,
         )
 
@@ -242,7 +244,7 @@ class OrderOrchestrator:
                 deposit_address_masked=mask_string(instructions.deposit_address or "")
                 if instructions.deposit_address
                 else None,
-                amount=float(instructions.amount or quote.amount_in),
+                amount=q8(instructions.amount or quote.amount_in),
                 currency=instructions.currency,
                 payment_comment=instructions.payment_comment,
                 expires_at=expires_at,
@@ -259,12 +261,18 @@ class OrderOrchestrator:
                 order_id=str(order.id),
                 error=type(exc).__name__,
             )
-            if partner_order_id and hasattr(adapter, "cancel_order"):
-                try:
-                    await adapter.cancel_order(partner_order_id)
-                except Exception:
-                    logger.warning("partner_cancel_failed", partner_order_id=partner_order_id)
-            # Re-raise so get_db rolls back order + consumed quote atomically.
+            # Best-effort partner compensation to avoid remote orphans.
+            if partner_order_id:
+                if hasattr(adapter, "cancel_order"):
+                    try:
+                        await adapter.cancel_order(partner_order_id)
+                        logger.info("partner_order_cancelled", partner_order_id=partner_order_id)
+                    except Exception as cancel_exc:
+                        logger.error(
+                            "partner_cancel_failed",
+                            partner_order_id=partner_order_id,
+                            error=type(cancel_exc).__name__,
+                        )
             if isinstance(exc, ValidationError | ConflictError | ForbiddenError | NotFoundError):
                 raise
             raise ValidationError(f"Failed to create order: {exc}") from exc

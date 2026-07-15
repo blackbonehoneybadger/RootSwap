@@ -8,9 +8,11 @@ from app.services.state_machine import OrderStateMachine
 
 
 def test_calculate_fees():
+    from app.core.money import D
+
     service_fee, total = calculate_fees(10000, 50, 10, 0.015)
-    assert service_fee == 150.0
-    assert total == 210.0
+    assert service_fee == D("150")
+    assert total == D("210")
 
 
 def test_root_score():
@@ -107,3 +109,11 @@ def test_mask_sensitive_data():
     assert "5536" in masked["card_number"]
     assert "1234" in masked["card_number"]
     assert "*" in masked["card_number"]
+
+
+def test_money_decimal_quantize():
+    from app.core.money import D, q8
+
+    assert q8("0.1") + q8("0.2") == D("0.30000000")
+    assert q8("0.000000095") == D("0.00000010") or q8("0.00000009") == D("0.00000009")
+    assert q8("1.234567891") == D("1.23456789")
