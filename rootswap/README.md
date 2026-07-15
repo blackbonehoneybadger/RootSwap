@@ -20,15 +20,18 @@ This first version implements a fully working mock/sandbox flow for:
 | SELL | BTC → RUB |
 | SELL | XMR → RUB |
 
-### What Works
+### What Works (MVP mock path)
 
 - Telegram Bot with Mini App button and referral `start=ref_CODE`
 - Mini App UI: buy/sell, quotes, orders, history, referrals, profile
-- Mock partner engine with deterministic scenarios
+- **Browser DEV auth** (`POST /api/v1/auth/dev`) when Telegram `initData` is missing
+- Mock partner engine with deterministic scenarios; payment requisites revealed for MOCK/SANDBOX
 - Quote engine with RootScore, parallel partner polling, circuit breaker
 - Order orchestrator with state machine, idempotency, encrypted payment instructions
+- **DEMO simulate-payment** to complete MOCK/SANDBOX orders end-to-end
+- User disputes transition order to `DISPUTED`
 - Webhook processing with signature verification, replay protection, deduplication
-- Polling fallback worker for active orders
+- Polling fallback worker for active orders (per-order error isolation)
 - Immutable ledger with reconciliation
 - Single-level referral rewards (paid once on COMPLETED)
 - Admin API with RBAC and audit logging
@@ -88,13 +91,16 @@ Services:
 ```bash
 # Start dependencies
 docker compose -f docker-compose.dev.yml up -d postgres redis
+# once: create isolated test DB
+docker compose -f docker-compose.dev.yml exec -T postgres \
+  psql -U rootswap -d rootswap -c "CREATE DATABASE rootswap_test;" || true
 
-# Backend tests
+# Backend tests (SQLite by default; set POSTGRES_TEST_DATABASE_URL for PG order test)
 cd backend
-pip install -r requirements.txt
-export TEST_DATABASE_URL=postgresql+asyncpg://rootswap:rootswap@localhost:5432/rootswap_test
+pip install -r requirements.txt aiosqlite ruff
 export TELEGRAM_BOT_TOKEN="0000000000:DEV_TELEGRAM_BOT_TOKEN_PLACEHOLDER"
-pytest -v
+export POSTGRES_TEST_DATABASE_URL=postgresql+asyncpg://rootswap:rootswap@localhost:5432/rootswap_test
+PYTHONPATH=. pytest -v
 ruff check .
 
 # Mini App build
@@ -103,6 +109,15 @@ npm install
 npm run typecheck
 npm run build
 ```
+
+### Manual MVP check (API)
+
+1. `GET /health`
+2. `POST /api/v1/auth/dev` → JWT
+3. `POST /api/v1/quotes` (BUY RUB→XMR)
+4. `POST /api/v1/orders` with wallet + idempotency key → `payment_instructions`
+5. `POST /api/v1/orders/{id}/simulate-payment` → `COMPLETED`
+6. Or open Mini App at http://localhost:5173 (Vite proxies `/api`) and use «Я оплатил (DEMO)»
 
 ## Project Structure
 
