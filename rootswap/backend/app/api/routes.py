@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import domain_error_handler, get_current_user
 from app.core.config import get_settings
+from app.core.datetime_utils import ensure_aware, utcnow
 from app.core.enums import ActorType, OrderStatus, QuoteSourceType
 from app.core.exceptions import DomainError, ValidationError
 from app.db.session import get_db
@@ -43,6 +44,10 @@ class DevAuthRequest(BaseModel):
     username: str | None = "dev_user"
     first_name: str | None = "Dev"
     referral_code: str | None = None
+
+
+def ensure_aware_pi_expired(pi: PaymentInstructions) -> bool:
+    return ensure_aware(pi.expires_at) < utcnow()
 
 
 def _quote_to_response(quote) -> QuoteResponse:
@@ -151,12 +156,48 @@ async def auth_telegram(body: TelegramAuthRequest, session: AsyncSession = Depen
     return TokenResponse(access_token=token, user_id=user.id)
 
 
+def _require_dev_endpoints() -> None:
+    """Hard gate: ENABLE_DEV_ENDPOINTS must be on and environment != production."""
+    if not get_settings().dev_endpoints_allowed:
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+@router.get("/assets")
+async def list_assets():
+    """Public list of supported / planned assets (honest MVP surface)."""
+    from app.core.assets import ASSETS, SUPPORTED_ROUTES
+
+    return {
+        "assets": [
+            {
+                "symbol": a.symbol,
+                "name": a.name,
+                "network": a.network,
+                "decimals": a.decimals,
+                "enabled": a.enabled,
+                "min_amount": a.min_amount,
+                "max_amount": a.max_amount,
+                "status": a.status,
+            }
+            for a in ASSETS.values()
+        ],
+        "routes": [
+            {
+                "direction": d.value,
+                "from_asset": fa,
+                "from_network": fn,
+                "to_asset": ta,
+                "to_network": tn,
+            }
+            for d, fa, fn, ta, tn in SUPPORTED_ROUTES
+        ],
+    }
+
+
 @router.post("/auth/dev", response_model=TokenResponse)
 async def auth_dev(body: DevAuthRequest, session: AsyncSession = Depends(get_db)):
     """Browser DEV auth when Telegram initData is unavailable (development only)."""
-    settings = get_settings()
-    if settings.environment == "production":
-        raise HTTPException(status_code=404, detail="Not found")
+    _require_dev_endpoints()
     result = await session.execute(select(User).where(User.telegram_id == body.telegram_id))
     user = result.scalar_one_or_none()
     referral_service = ReferralService()
@@ -173,7 +214,10 @@ async def auth_dev(body: DevAuthRequest, session: AsyncSession = Depends(get_db)
             await referral_service.attach_referrer(session, user, body.referral_code)
         except DomainError:
             pass
-    token = create_access_token(str(user.id), {"telegram_id": body.telegram_id})
+    token = create_access_token(
+        str(user.id),
+        {"telegram_id": body.telegram_id, "auth_mode": "dev"},
+    )
     return TokenResponse(access_token=token, user_id=user.id)
 
 
@@ -276,9 +320,7 @@ async def simulate_payment(
     session: AsyncSession = Depends(get_db),
 ):
     """DEMO only: advance MOCK/SANDBOX order to COMPLETED as if payment succeeded."""
-    settings = get_settings()
-    if settings.environment == "production":
-        raise HTTPException(status_code=404, detail="Not found")
+    _require_dev_endpoints()
 
     result = await session.execute(
         select(Order)
@@ -290,6 +332,10 @@ async def simulate_payment(
         raise HTTPException(status_code=404, detail="Order not found")
     if order.quote_source_type not in (QuoteSourceType.MOCK, QuoteSourceType.SANDBOX):
         raise HTTPException(status_code=400, detail="simulate-payment only for MOCK/SANDBOX")
+    if order.status != OrderStatus.AWAITING_PAYMENT:
+        raise HTTPException(status_code=400, detail="Order is not awaiting payment")
+    if order.payment_instructions and ensure_aware_pi_expired(order.payment_instructions):
+        raise HTTPException(status_code=400, detail="Payment instructions expired")
 
     if order.partner_order_id:
         adapter = partner_registry.get_adapter(order.partner_code)
@@ -298,12 +344,13 @@ async def simulate_payment(
 
     orchestrator = OrderOrchestrator()
     try:
+        # SYSTEM actor — USER cannot jump to COMPLETED via state machine ACL.
         order = await orchestrator.advance_to(
             session,
             order,
             OrderStatus.COMPLETED,
-            ActorType.USER,
-            str(user.id),
+            ActorType.SYSTEM,
+            f"dev:{user.id}",
             {"source": "simulate_payment"},
         )
     except DomainError as exc:

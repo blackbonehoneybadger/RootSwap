@@ -1,8 +1,12 @@
+import hashlib
+import json
 import uuid
 from datetime import timedelta
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.datetime_utils import ensure_aware, utcnow
@@ -15,7 +19,7 @@ from app.core.exceptions import (
     NotFoundError,
     ValidationError,
 )
-from app.models import AuditLog, Order, OrderEvent, PaymentInstructions, Quote, User
+from app.models import AuditLog, Order, OrderEvent, Partner, PaymentInstructions, Quote, User
 from app.observability.logging import get_logger
 from app.partners.base import FiatPartnerAdapter, OrderRequest
 from app.partners.registry import partner_registry
@@ -27,12 +31,45 @@ from app.services.state_machine import OrderStateMachine
 logger = get_logger(__name__)
 
 
+def build_idempotency_fingerprint(
+    quote_id: uuid.UUID,
+    wallet_address: str | None,
+    payout_details: dict | None,
+    payment_method: str | None,
+    bank_name: str | None,
+) -> str:
+    payload = {
+        "quote_id": str(quote_id),
+        "wallet_address": (wallet_address or "").strip(),
+        "payout_details": payout_details or {},
+        "payment_method": payment_method,
+        "bank_name": bank_name,
+    }
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
 class OrderOrchestrator:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.state_machine = OrderStateMachine()
         self.ledger = LedgerService()
         self.referral = ReferralService()
+
+    async def _load_existing_by_idempotency(
+        self, session: AsyncSession, idempotency_key: str
+    ) -> Order | None:
+        result = await session.execute(
+            select(Order)
+            .where(Order.idempotency_key == idempotency_key)
+            .options(selectinload(Order.payment_instructions))
+        )
+        return result.scalar_one_or_none()
+
+    def _check_fingerprint(self, order: Order, fingerprint: str) -> Order:
+        if order.idempotency_fingerprint and order.idempotency_fingerprint != fingerprint:
+            raise ConflictError("Idempotency-Key reuse with different payload")
+        return order
 
     async def create_order(
         self,
@@ -49,14 +86,18 @@ class OrderOrchestrator:
         if self.settings.emergency_stop:
             raise EmergencyStopError()
 
-        existing = await session.execute(
-            select(Order).where(Order.idempotency_key == idempotency_key)
+        fingerprint = build_idempotency_fingerprint(
+            quote_id, wallet_address, payout_details, payment_method, bank_name
         )
-        existing_order = existing.scalar_one_or_none()
-        if existing_order:
-            return existing_order
 
-        result = await session.execute(select(Quote).where(Quote.id == quote_id))
+        existing_order = await self._load_existing_by_idempotency(session, idempotency_key)
+        if existing_order:
+            return self._check_fingerprint(existing_order, fingerprint)
+
+        # Lock quote row to serialize concurrent consumes (PostgreSQL).
+        result = await session.execute(
+            select(Quote).where(Quote.id == quote_id).with_for_update()
+        )
         quote = result.scalar_one_or_none()
         if not quote:
             raise NotFoundError("Quote not found")
@@ -84,6 +125,13 @@ class OrderOrchestrator:
         if active.scalar_one_or_none():
             raise ConflictError("Active order already exists for this quote")
 
+        partner_row = await session.execute(
+            select(Partner).where(Partner.code == quote.partner_code)
+        )
+        partner = partner_row.scalar_one_or_none()
+        if not partner or not partner.enabled:
+            raise ValidationError("Partner is not active")
+
         if quote.direction == OrderDirection.BUY:
             if not wallet_address or not wallet_address.strip():
                 raise ValidationError("wallet_address is required for BUY orders")
@@ -92,14 +140,15 @@ class OrderOrchestrator:
             if not payout_details or not payout_details.get("account"):
                 raise ValidationError("payout_details.account is required for SELL orders")
 
-        quote.consumed_at = utcnow()
-
         adapter = partner_registry.get_adapter(quote.partner_code)
         if not isinstance(adapter, FiatPartnerAdapter):
             raise ValidationError("Unsupported partner adapter")
 
         if scenario and hasattr(adapter, "set_scenario"):
             adapter.set_scenario(scenario)
+
+        # Consume only after lock + validation; still rolled back on later failure.
+        quote.consumed_at = utcnow()
 
         order = Order(
             id=uuid.uuid4(),
@@ -121,6 +170,7 @@ class OrderOrchestrator:
             total_fee=float(quote.total_fee),
             quote_source_type=quote.quote_source_type,
             idempotency_key=idempotency_key,
+            idempotency_fingerprint=fingerprint,
             wallet_address_encrypted=encrypt_value(wallet_address) if wallet_address else None,
             wallet_address_masked=mask_string(wallet_address) if wallet_address else None,
             payout_details_encrypted=encrypt_value(str(payout_details)) if payout_details else None,
@@ -128,7 +178,14 @@ class OrderOrchestrator:
             version=1,
         )
         session.add(order)
-        await session.flush()
+        try:
+            await session.flush()
+        except IntegrityError:
+            await session.rollback()
+            raced = await self._load_existing_by_idempotency(session, idempotency_key)
+            if raced:
+                return self._check_fingerprint(raced, fingerprint)
+            raise ConflictError("Order create conflict") from None
 
         await self._add_event(session, order, OrderStatus.CREATED, ActorType.USER, str(user.id))
         await self.transition(
@@ -146,62 +203,71 @@ class OrderOrchestrator:
             amount_in=float(quote.amount_in),
             scenario=scenario,
         )
+
+        partner_order_id: str | None = None
         try:
             partner_result = await adapter.create_fiat_order(partner_request)
-        except Exception as exc:
+            partner_order_id = partner_result.partner_order_id
+            order.partner_order_id = partner_order_id
+            if hasattr(adapter, "set_scenario"):
+                adapter.set_scenario(None)
+
             await self.transition(
-                session, order, OrderStatus.FAILED, ActorType.SYSTEM, None,
-                {"error": str(exc)},
+                session, order, OrderStatus.AWAITING_PAYMENT, ActorType.SYSTEM, None, {}
             )
+
+            instructions = await adapter.get_payment_instructions(partner_order_id)
+            settings = get_settings()
+            expires_at = instructions.expires_at
+            max_ttl = utcnow() + timedelta(seconds=settings.payment_instructions_ttl_seconds)
+            if ensure_aware(expires_at) > max_ttl:
+                expires_at = max_ttl
+            pi = PaymentInstructions(
+                id=uuid.uuid4(),
+                order_id=order.id,
+                partner_order_id=partner_order_id,
+                payment_method=instructions.payment_method or payment_method or "SBP",
+                bank_name=instructions.bank_name or bank_name,
+                recipient_name_encrypted=encrypt_value(instructions.recipient_name or ""),
+                account_number_encrypted=encrypt_value(instructions.account_number or ""),
+                card_number_encrypted=encrypt_value(instructions.card_number or ""),
+                sbp_phone_encrypted=encrypt_value(instructions.sbp_phone or ""),
+                masked_recipient_name=mask_string(instructions.recipient_name or "", 2, 2),
+                masked_account=mask_string(instructions.account_number or "", 4, 4),
+                masked_card=mask_string(instructions.card_number or "", 4, 4),
+                masked_phone=mask_string(instructions.sbp_phone or "", 3, 2),
+                deposit_address_encrypted=encrypt_value(instructions.deposit_address or "")
+                if instructions.deposit_address
+                else None,
+                deposit_address_masked=mask_string(instructions.deposit_address or "")
+                if instructions.deposit_address
+                else None,
+                amount=float(instructions.amount or quote.amount_in),
+                currency=instructions.currency,
+                payment_comment=instructions.payment_comment,
+                expires_at=expires_at,
+            )
+            session.add(pi)
             await session.flush()
-            raise ValidationError(f"Partner failed to create order: {exc}") from exc
-        order.partner_order_id = partner_result.partner_order_id
-        if hasattr(adapter, "set_scenario"):
-            adapter.set_scenario(None)
-
-        await self.transition(
-            session, order, OrderStatus.AWAITING_PAYMENT, ActorType.SYSTEM, None, {}
-        )
-
-        instructions = await adapter.get_payment_instructions(partner_result.partner_order_id)
-        settings = get_settings()
-        expires_at = instructions.expires_at
-        if ensure_aware(expires_at) > utcnow() + timedelta(seconds=settings.payment_instructions_ttl_seconds):
-            expires_at = utcnow() + timedelta(seconds=settings.payment_instructions_ttl_seconds)
-        pi = PaymentInstructions(
-            id=uuid.uuid4(),
-            order_id=order.id,
-            partner_order_id=partner_result.partner_order_id,
-            payment_method=instructions.payment_method or payment_method or "SBP",
-            bank_name=instructions.bank_name or bank_name,
-            recipient_name_encrypted=encrypt_value(instructions.recipient_name or ""),
-            account_number_encrypted=encrypt_value(instructions.account_number or ""),
-            card_number_encrypted=encrypt_value(instructions.card_number or ""),
-            sbp_phone_encrypted=encrypt_value(instructions.sbp_phone or ""),
-            masked_recipient_name=mask_string(instructions.recipient_name or "", 2, 2),
-            masked_account=mask_string(instructions.account_number or "", 4, 4),
-            masked_card=mask_string(instructions.card_number or "", 4, 4),
-            masked_phone=mask_string(instructions.sbp_phone or "", 3, 2),
-            deposit_address_encrypted=encrypt_value(instructions.deposit_address or "")
-            if instructions.deposit_address
-            else None,
-            deposit_address_masked=mask_string(instructions.deposit_address or "")
-            if instructions.deposit_address
-            else None,
-            amount=float(instructions.amount or quote.amount_in),
-            currency=instructions.currency,
-            payment_comment=instructions.payment_comment,
-            expires_at=expires_at,
-        )
-        # Flush order is critical for PostgreSQL (non-deferrable FKs):
-        # 1) INSERT payment_instructions with order_id (order already exists)
-        # 2) UPDATE orders.payment_instructions_id (soft pointer, no FK)
-        session.add(pi)
-        await session.flush()
-        order.payment_instructions_id = pi.id
-        order.expired_at = expires_at
-        await session.flush()
-        return order
+            order.payment_instructions_id = pi.id
+            order.expired_at = expires_at
+            await session.flush()
+            return order
+        except Exception as exc:
+            logger.warning(
+                "order_create_failed",
+                order_id=str(order.id),
+                error=type(exc).__name__,
+            )
+            if partner_order_id and hasattr(adapter, "cancel_order"):
+                try:
+                    await adapter.cancel_order(partner_order_id)
+                except Exception:
+                    logger.warning("partner_cancel_failed", partner_order_id=partner_order_id)
+            # Re-raise so get_db rolls back order + consumed quote atomically.
+            if isinstance(exc, ValidationError | ConflictError | ForbiddenError | NotFoundError):
+                raise
+            raise ValidationError(f"Failed to create order: {exc}") from exc
 
     async def advance_to(
         self,

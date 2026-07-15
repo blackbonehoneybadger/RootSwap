@@ -6,6 +6,7 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.assets import validate_route
 from app.core.config import get_settings
 from app.core.datetime_utils import ensure_aware, utcnow
 from app.core.enums import CircuitBreakerState, OrderDirection, QuoteSourceType
@@ -51,6 +52,8 @@ class QuoteEngine:
         bank_name: str | None = None,
         scenario: str | None = None,
     ) -> dict:
+        validate_route(direction, from_asset, from_network, to_asset, to_network, amount_in)
+
         db_partners = await self._get_partners(session)
         if not db_partners:
             raise ValidationError("No partners available")

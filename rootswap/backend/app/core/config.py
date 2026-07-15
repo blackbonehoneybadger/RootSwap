@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 FORBIDDEN_SECRETS = frozenset(
@@ -18,6 +18,8 @@ FORBIDDEN_SECRETS = frozenset(
     }
 )
 
+DEV_BOT_TOKEN_PREFIX = "0000000000:"
+
 
 class AdminRoleEntry:
     def __init__(self, role: str, key: str) -> None:
@@ -31,13 +33,17 @@ class Settings(BaseSettings):
     environment: Literal["development", "staging", "production"] = "development"
     debug: bool = False
 
+    # DEV-only endpoints (/auth/dev, /simulate-payment). Default OFF.
+    # Forced OFF in production even if env var is set true.
+    enable_dev_endpoints: bool = False
+
     database_url: str = "postgresql+asyncpg://rootswap:rootswap@localhost:5432/rootswap"
     redis_url: str = "redis://localhost:6379/0"
     redis_password: str | None = None
 
     jwt_secret: str = "rootswap-dev-jwt-secret-change-in-production"
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60 * 24 * 7
+    jwt_expire_minutes: int = 60 * 24  # 24h (not multi-day for demo sessions)
 
     encryption_key: str = "dev-encryption-key-32bytes-long!!"
     telegram_bot_token: str = "0000000000:DEV_TELEGRAM_BOT_TOKEN_PLACEHOLDER"
@@ -70,6 +76,17 @@ class Settings(BaseSettings):
             raise ValueError("database_url must be a PostgreSQL URL")
         return v
 
+    @model_validator(mode="after")
+    def force_disable_dev_in_production(self) -> "Settings":
+        if self.environment == "production":
+            object.__setattr__(self, "enable_dev_endpoints", False)
+        return self
+
+    @property
+    def dev_endpoints_allowed(self) -> bool:
+        """True only when explicitly enabled AND not production."""
+        return bool(self.enable_dev_endpoints) and self.environment != "production"
+
     @property
     def cors_origin_list(self) -> list[str]:
         if self.cors_origins == "*":
@@ -94,6 +111,8 @@ class Settings(BaseSettings):
         if self.environment != "production":
             return
         errors: list[str] = []
+        if self.enable_dev_endpoints:
+            errors.append("ENABLE_DEV_ENDPOINTS cannot be true in production")
         if not self.jwt_secret or self.jwt_secret.lower() in FORBIDDEN_SECRETS:
             errors.append("JWT_SECRET is weak or default")
         if len(self.jwt_secret) < 32:
@@ -106,6 +125,10 @@ class Settings(BaseSettings):
             errors.append("REDIS password is required in production")
         if not self.telegram_webhook_secret or self.telegram_webhook_secret.lower() in FORBIDDEN_SECRETS:
             errors.append("Webhook secret is missing or default")
+        if not self.telegram_bot_token or self.telegram_bot_token.startswith(DEV_BOT_TOKEN_PREFIX):
+            errors.append("TELEGRAM_BOT_TOKEN is missing or a development placeholder")
+        if self.cors_origins.strip() == "*":
+            errors.append("CORS_ORIGINS=* is forbidden in production")
         if errors:
             raise RuntimeError("Production startup blocked: " + "; ".join(errors))
 
