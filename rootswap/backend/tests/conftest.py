@@ -37,6 +37,13 @@ def reset_app_state():
     get_settings.cache_clear()
     settings = get_settings()
     settings.emergency_stop = False
+    settings.rate_limit_per_minute = 100_000
+    try:
+        import redis as sync_redis
+
+        sync_redis.from_url(settings.redis_url, decode_responses=True).flushdb()
+    except Exception:
+        pass
     yield
     settings.emergency_stop = False
     get_settings.cache_clear()

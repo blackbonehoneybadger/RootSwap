@@ -3,12 +3,11 @@ import time
 import uuid
 from datetime import timedelta
 
-from app.core.datetime_utils import ensure_aware, utcnow
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.datetime_utils import ensure_aware, utcnow
 from app.core.enums import CircuitBreakerState, OrderDirection, QuoteSourceType
 from app.core.exceptions import ForbiddenError, ValidationError
 from app.models import Partner, Quote, User

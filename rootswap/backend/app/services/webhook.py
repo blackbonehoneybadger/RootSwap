@@ -110,6 +110,18 @@ class WebhookService:
         if internal_status == OrderStatus.DISPUTED:
             await self.referral.freeze_on_dispute(session, order)
 
-        await self.orchestrator.transition(
-            session, order, internal_status, ActorType.PARTNER, partner_code, data
-        )
+        happy = {
+            OrderStatus.PAYMENT_DETECTED,
+            OrderStatus.PAYMENT_CONFIRMING,
+            OrderStatus.PROCESSING,
+            OrderStatus.PAYOUT_SENT,
+            OrderStatus.COMPLETED,
+        }
+        if internal_status in happy:
+            await self.orchestrator.advance_to(
+                session, order, internal_status, ActorType.PARTNER, partner_code, data
+            )
+        else:
+            await self.orchestrator.transition(
+                session, order, internal_status, ActorType.PARTNER, partner_code, data
+            )

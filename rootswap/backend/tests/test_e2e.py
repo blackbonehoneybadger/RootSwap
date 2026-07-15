@@ -5,7 +5,7 @@ import pytest
 from app.core.enums import OrderDirection, QuoteSourceType
 from app.core.exceptions import ForbiddenError
 from app.services.quote_engine import QuoteEngine
-from tests.conftest import XMR_TEST_ADDRESS
+from tests.conftest import TRON_TEST_ADDRESS, XMR_TEST_ADDRESS
 
 
 @pytest.mark.asyncio

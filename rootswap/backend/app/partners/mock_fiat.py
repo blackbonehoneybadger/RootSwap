@@ -135,6 +135,9 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
             "partner_order_id": partner_order_id,
             "status": status,
             "scenario": scenario,
+            "amount_in": request.amount_in,
+            "payment_method": request.payment_method or "SBP",
+            "bank_name": request.bank_name or "Sber",
             "created_at": datetime.now(UTC).isoformat(),
         }
         self._orders[partner_order_id] = order_data
@@ -150,29 +153,35 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
     async def get_payment_instructions(self, partner_order_id: str) -> PaymentInstructionsResult:
         order = self._orders.get(partner_order_id, {})
         scenario = order.get("scenario", "success")
-        expires = datetime.now(UTC) + timedelta(minutes=15)
+        amount = float(order.get("amount_in") or 10000.0)
+        method = order.get("payment_method") or "SBP"
+        bank = order.get("bank_name") or "Sber"
+        from app.core.config import get_settings
+
+        ttl = get_settings().payment_instructions_ttl_seconds
+        expires = datetime.now(UTC) + timedelta(seconds=ttl)
         if scenario == "expired_payment":
             expires = datetime.now(UTC) - timedelta(minutes=1)
 
         return PaymentInstructionsResult(
-            payment_method="SBP",
-            bank_name="Sber",
+            payment_method=method,
+            bank_name=bank,
             recipient_name="Mock Recipient",
             account_number="40817810099910004312",
             card_number="5536910000001234",
             sbp_phone="+79001234567",
             deposit_address="T" + "A" * 33,
-            amount=10000.0,
+            amount=amount,
             currency="RUB",
             payment_comment=f"PAY-{partner_order_id[-8:]}",
             expires_at=expires,
         )
 
     async def get_order_status(self, partner_order_id: str) -> PartnerOrderStatus:
-        order = self._orders.get(partner_order_id, {"status": "processing"})
+        order = self._orders.get(partner_order_id, {"status": "awaiting_payment"})
         return PartnerOrderStatus(
             partner_order_id=partner_order_id,
-            status=order.get("status", "processing"),
+            status=order.get("status", "awaiting_payment"),
             message="Mock status",
             raw_response=order,
         )

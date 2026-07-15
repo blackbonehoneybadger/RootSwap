@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,7 @@ from app.core.exceptions import (
     ConflictError,
     EmergencyStopError,
     ForbiddenError,
+    InvalidTransitionError,
     NotFoundError,
     ValidationError,
 )
@@ -82,8 +84,13 @@ class OrderOrchestrator:
         if active.scalar_one_or_none():
             raise ConflictError("Active order already exists for this quote")
 
-        if quote.direction == OrderDirection.BUY and wallet_address:
+        if quote.direction == OrderDirection.BUY:
+            if not wallet_address or not wallet_address.strip():
+                raise ValidationError("wallet_address is required for BUY orders")
             validate_wallet_address(quote.to_asset, quote.to_network, wallet_address)
+        elif quote.direction == OrderDirection.SELL:
+            if not payout_details or not payout_details.get("account"):
+                raise ValidationError("payout_details.account is required for SELL orders")
 
         quote.consumed_at = utcnow()
 
@@ -136,9 +143,18 @@ class OrderOrchestrator:
             payment_method=payment_method,
             bank_name=bank_name,
             idempotency_key=idempotency_key,
+            amount_in=float(quote.amount_in),
             scenario=scenario,
         )
-        partner_result = await adapter.create_fiat_order(partner_request)
+        try:
+            partner_result = await adapter.create_fiat_order(partner_request)
+        except Exception as exc:
+            await self.transition(
+                session, order, OrderStatus.FAILED, ActorType.SYSTEM, None,
+                {"error": str(exc)},
+            )
+            await session.flush()
+            raise ValidationError(f"Partner failed to create order: {exc}") from exc
         order.partner_order_id = partner_result.partner_order_id
         if hasattr(adapter, "set_scenario"):
             adapter.set_scenario(None)
@@ -148,12 +164,16 @@ class OrderOrchestrator:
         )
 
         instructions = await adapter.get_payment_instructions(partner_result.partner_order_id)
+        settings = get_settings()
+        expires_at = instructions.expires_at
+        if ensure_aware(expires_at) > utcnow() + timedelta(seconds=settings.payment_instructions_ttl_seconds):
+            expires_at = utcnow() + timedelta(seconds=settings.payment_instructions_ttl_seconds)
         pi = PaymentInstructions(
             id=uuid.uuid4(),
             order_id=order.id,
             partner_order_id=partner_result.partner_order_id,
-            payment_method=instructions.payment_method,
-            bank_name=instructions.bank_name,
+            payment_method=instructions.payment_method or payment_method or "SBP",
+            bank_name=instructions.bank_name or bank_name,
             recipient_name_encrypted=encrypt_value(instructions.recipient_name or ""),
             account_number_encrypted=encrypt_value(instructions.account_number or ""),
             card_number_encrypted=encrypt_value(instructions.card_number or ""),
@@ -168,10 +188,10 @@ class OrderOrchestrator:
             deposit_address_masked=mask_string(instructions.deposit_address or "")
             if instructions.deposit_address
             else None,
-            amount=instructions.amount,
+            amount=float(instructions.amount or quote.amount_in),
             currency=instructions.currency,
             payment_comment=instructions.payment_comment,
-            expires_at=instructions.expires_at,
+            expires_at=expires_at,
         )
         # Flush order is critical for PostgreSQL (non-deferrable FKs):
         # 1) INSERT payment_instructions with order_id (order already exists)
@@ -179,8 +199,34 @@ class OrderOrchestrator:
         session.add(pi)
         await session.flush()
         order.payment_instructions_id = pi.id
-        order.expired_at = instructions.expires_at
+        order.expired_at = expires_at
         await session.flush()
+        return order
+
+    async def advance_to(
+        self,
+        session: AsyncSession,
+        order: Order,
+        target: OrderStatus,
+        actor: ActorType,
+        actor_id: str | None,
+        metadata: dict | None = None,
+    ) -> Order:
+        """Walk intermediate happy-path statuses when partner jumps ahead."""
+        metadata = metadata or {}
+        if order.status == target:
+            return order
+        chain = self.state_machine.get_chain(order.direction)
+        if order.status not in chain or target not in chain:
+            return await self.transition(session, order, target, actor, actor_id, metadata)
+        cur_idx = chain.index(order.status)
+        tgt_idx = chain.index(target)
+        if tgt_idx <= cur_idx:
+            raise InvalidTransitionError(
+                f"Cannot move backwards from {order.status.value} to {target.value}"
+            )
+        for status in chain[cur_idx + 1 : tgt_idx + 1]:
+            order = await self.transition(session, order, status, actor, actor_id, metadata)
         return order
 
     async def transition(

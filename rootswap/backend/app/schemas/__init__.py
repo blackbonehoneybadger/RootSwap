@@ -83,6 +83,12 @@ class PaymentInstructionsResponse(BaseModel):
     currency: str
     payment_comment: str | None
     expires_at: datetime
+    # Revealed only for MOCK/SANDBOX demo copy-paste
+    recipient_name: str | None = None
+    account_number: str | None = None
+    card_number: str | None = None
+    sbp_phone: str | None = None
+    deposit_address: str | None = None
 
     model_config = {"from_attributes": True}
 

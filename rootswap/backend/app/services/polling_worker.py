@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.enums import FINAL_ORDER_STATUSES, ActorType
+from app.core.enums import FINAL_ORDER_STATUSES, ActorType, OrderStatus
 from app.db.session import async_session_factory
 from app.models import Order
 from app.observability.logging import get_logger
@@ -50,10 +50,43 @@ class PollingWorker:
         adapter = partner_registry.get_adapter(order.partner_code)
         if not isinstance(adapter, FiatPartnerAdapter):
             return
-        status_result = await adapter.get_order_status(order.partner_order_id)
+        try:
+            status_result = await adapter.get_order_status(order.partner_order_id)
+        except Exception as exc:
+            logger.warning("poll_partner_error", order_id=str(order.id), error=str(exc))
+            return
         internal = PARTNER_STATUS_MAP.get(status_result.status)
         if not internal or internal == order.status:
             return
-        await self.orchestrator.transition(
-            session, order, internal, ActorType.SYSTEM, "polling_worker", status_result.raw_response
-        )
+        try:
+            happy = {
+                OrderStatus.PAYMENT_DETECTED,
+                OrderStatus.PAYMENT_CONFIRMING,
+                OrderStatus.PROCESSING,
+                OrderStatus.PAYOUT_SENT,
+                OrderStatus.COMPLETED,
+            }
+            if internal in happy:
+                await self.orchestrator.advance_to(
+                    session,
+                    order,
+                    internal,
+                    ActorType.SYSTEM,
+                    "polling_worker",
+                    status_result.raw_response,
+                )
+            else:
+                await self.orchestrator.transition(
+                    session,
+                    order,
+                    internal,
+                    ActorType.SYSTEM,
+                    "polling_worker",
+                    status_result.raw_response,
+                )
+        except Exception as exc:
+            logger.warning(
+                "poll_transition_skipped",
+                order_id=str(order.id),
+                error=str(exc),
+            )

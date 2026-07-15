@@ -13,6 +13,8 @@ FORBIDDEN_SECRETS = frozenset(
         "your-secret-here",
         "jwt-secret",
         "rootswap-dev-jwt-secret-change-in-production",
+        "dev-encryption-key-32bytes-long!!",
+        "dev-webhook-secret",
     }
 )
 

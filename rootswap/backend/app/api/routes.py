@@ -1,18 +1,23 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import domain_error_handler, get_current_user
-from app.core.exceptions import DomainError
+from app.core.config import get_settings
+from app.core.enums import ActorType, OrderStatus, QuoteSourceType
+from app.core.exceptions import DomainError, ValidationError
 from app.db.session import get_db
-from app.models import Dispute, Order, User
+from app.models import Dispute, Order, PaymentInstructions, User
+from app.partners.registry import partner_registry
 from app.schemas import (
     DisputeCreateRequest,
     OrderCreateRequest,
     OrderResponse,
+    PaymentInstructionsResponse,
     QuoteCreateRequest,
     QuoteListResponse,
     QuoteResponse,
@@ -20,12 +25,24 @@ from app.schemas import (
     TelegramAuthRequest,
     TokenResponse,
 )
-from app.security import create_access_token, generate_referral_code, validate_telegram_init_data
+from app.security import (
+    create_access_token,
+    decrypt_value,
+    generate_referral_code,
+    validate_telegram_init_data,
+)
 from app.services.order_orchestrator import OrderOrchestrator
 from app.services.quote_engine import QuoteEngine
 from app.services.referral import ReferralService
 
 router = APIRouter(prefix="/api/v1")
+
+
+class DevAuthRequest(BaseModel):
+    telegram_id: int = Field(default=900001, gt=0)
+    username: str | None = "dev_user"
+    first_name: str | None = "Dev"
+    referral_code: str | None = None
 
 
 def _quote_to_response(quote) -> QuoteResponse:
@@ -51,6 +68,49 @@ def _quote_to_response(quote) -> QuoteResponse:
         kyc_required=raw.get("kyc_required", False),
         estimated_time_seconds=raw.get("estimated_time_seconds", 600),
     )
+
+
+def _dec(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    try:
+        return decrypt_value(raw)
+    except Exception:
+        return None
+
+
+def _pi_to_response(
+    pi: PaymentInstructions, source: QuoteSourceType
+) -> PaymentInstructionsResponse:
+    reveal = source in (QuoteSourceType.MOCK, QuoteSourceType.SANDBOX)
+    return PaymentInstructionsResponse(
+        id=pi.id,
+        payment_method=pi.payment_method,
+        bank_name=pi.bank_name,
+        masked_recipient_name=pi.masked_recipient_name,
+        masked_account=pi.masked_account,
+        masked_card=pi.masked_card,
+        masked_phone=pi.masked_phone,
+        deposit_address_masked=pi.deposit_address_masked,
+        amount=float(pi.amount),
+        currency=pi.currency,
+        payment_comment=pi.payment_comment,
+        expires_at=pi.expires_at,
+        recipient_name=_dec(pi.recipient_name_encrypted) if reveal else None,
+        account_number=_dec(pi.account_number_encrypted) if reveal else None,
+        card_number=_dec(pi.card_number_encrypted) if reveal else None,
+        sbp_phone=_dec(pi.sbp_phone_encrypted) if reveal else None,
+        deposit_address=_dec(pi.deposit_address_encrypted) if reveal else None,
+    )
+
+
+def _order_to_response(order: Order) -> OrderResponse:
+    data = OrderResponse.model_validate(order)
+    if order.payment_instructions is not None:
+        data.payment_instructions = _pi_to_response(
+            order.payment_instructions, order.quote_source_type
+        )
+    return data
 
 
 @router.post("/auth/telegram", response_model=TokenResponse)
@@ -88,6 +148,32 @@ async def auth_telegram(body: TelegramAuthRequest, session: AsyncSession = Depen
         user.first_name = user_data.get("first_name") or user.first_name
 
     token = create_access_token(str(user.id), {"telegram_id": telegram_id})
+    return TokenResponse(access_token=token, user_id=user.id)
+
+
+@router.post("/auth/dev", response_model=TokenResponse)
+async def auth_dev(body: DevAuthRequest, session: AsyncSession = Depends(get_db)):
+    """Browser DEV auth when Telegram initData is unavailable (development only)."""
+    settings = get_settings()
+    if settings.environment == "production":
+        raise HTTPException(status_code=404, detail="Not found")
+    result = await session.execute(select(User).where(User.telegram_id == body.telegram_id))
+    user = result.scalar_one_or_none()
+    referral_service = ReferralService()
+    if not user:
+        user = User(
+            telegram_id=body.telegram_id,
+            username=body.username,
+            first_name=body.first_name,
+            referral_code=generate_referral_code(),
+        )
+        session.add(user)
+        await session.flush()
+        try:
+            await referral_service.attach_referrer(session, user, body.referral_code)
+        except DomainError:
+            pass
+    token = create_access_token(str(user.id), {"telegram_id": body.telegram_id})
     return TokenResponse(access_token=token, user_id=user.id)
 
 
@@ -149,7 +235,7 @@ async def create_order(
         order = result.scalar_one()
     except DomainError as exc:
         raise domain_error_handler(exc) from exc
-    return OrderResponse.model_validate(order)
+    return _order_to_response(order)
 
 
 @router.get("/orders", response_model=list[OrderResponse])
@@ -163,7 +249,7 @@ async def list_orders(
         .options(selectinload(Order.payment_instructions))
         .order_by(Order.created_at.desc())
     )
-    return [OrderResponse.model_validate(o) for o in result.scalars().all()]
+    return [_order_to_response(o) for o in result.scalars().all()]
 
 
 @router.get("/orders/{order_id}", response_model=OrderResponse)
@@ -180,7 +266,55 @@ async def get_order(
     order = result.scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    return OrderResponse.model_validate(order)
+    return _order_to_response(order)
+
+
+@router.post("/orders/{order_id}/simulate-payment", response_model=OrderResponse)
+async def simulate_payment(
+    order_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """DEMO only: advance MOCK/SANDBOX order to COMPLETED as if payment succeeded."""
+    settings = get_settings()
+    if settings.environment == "production":
+        raise HTTPException(status_code=404, detail="Not found")
+
+    result = await session.execute(
+        select(Order)
+        .where(Order.id == order_id, Order.user_id == user.id)
+        .options(selectinload(Order.payment_instructions))
+    )
+    order = result.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.quote_source_type not in (QuoteSourceType.MOCK, QuoteSourceType.SANDBOX):
+        raise HTTPException(status_code=400, detail="simulate-payment only for MOCK/SANDBOX")
+
+    if order.partner_order_id:
+        adapter = partner_registry.get_adapter(order.partner_code)
+        if adapter and hasattr(adapter, "simulate_status"):
+            adapter.simulate_status(order.partner_order_id, "completed")
+
+    orchestrator = OrderOrchestrator()
+    try:
+        order = await orchestrator.advance_to(
+            session,
+            order,
+            OrderStatus.COMPLETED,
+            ActorType.USER,
+            str(user.id),
+            {"source": "simulate_payment"},
+        )
+    except DomainError as exc:
+        raise domain_error_handler(exc) from exc
+
+    result = await session.execute(
+        select(Order)
+        .where(Order.id == order.id)
+        .options(selectinload(Order.payment_instructions))
+    )
+    return _order_to_response(result.scalar_one())
 
 
 @router.post("/orders/{order_id}/dispute")
@@ -191,14 +325,49 @@ async def create_dispute(
     session: AsyncSession = Depends(get_db),
 ):
     result = await session.execute(
-        select(Order).where(Order.id == order_id, Order.user_id == user.id)
+        select(Order)
+        .where(Order.id == order_id, Order.user_id == user.id)
+        .options(selectinload(Order.payment_instructions))
     )
     order = result.scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.status in (
+        OrderStatus.CREATED,
+        OrderStatus.QUOTE_CONFIRMED,
+        OrderStatus.AWAITING_PAYMENT,
+        OrderStatus.CANCELLED,
+        OrderStatus.EXPIRED,
+        OrderStatus.FAILED,
+    ):
+        raise domain_error_handler(
+            ValidationError("Dispute is only available after payment is detected")
+        )
+
+    orchestrator = OrderOrchestrator()
+    referral = ReferralService()
+    try:
+        if order.status != OrderStatus.DISPUTED:
+            order = await orchestrator.transition(
+                session,
+                order,
+                OrderStatus.DISPUTED,
+                ActorType.USER,
+                str(user.id),
+                {"reason": body.reason},
+            )
+            await referral.freeze_on_dispute(session, order)
+    except DomainError as exc:
+        raise domain_error_handler(exc) from exc
+
     dispute = Dispute(order_id=order.id, user_id=user.id, reason=body.reason)
     session.add(dispute)
-    return {"status": "dispute_created", "dispute_id": str(dispute.id)}
+    return {
+        "status": "dispute_created",
+        "dispute_id": str(dispute.id),
+        "order_status": order.status.value,
+    }
 
 
 @router.get("/referral/stats", response_model=ReferralStatsResponse)
