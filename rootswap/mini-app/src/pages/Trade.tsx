@@ -31,7 +31,9 @@ export default function Trade({ mode }: Props) {
   const [selected, setSelected] = useState<Quote | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   const route = ROUTES[mode][routeIdx];
   const walletOk = wallet.trim().length >= 11;
@@ -40,6 +42,10 @@ export default function Trade({ mode }: Props) {
   async function fetchQuotes() {
     setLoading(true);
     setError(null);
+    setQuotes(null);
+    setSelected(null);
+    setConfirm(false);
+    setIdempotencyKey(crypto.randomUUID());
     try {
       const body: Record<string, unknown> = {
         direction: mode,
@@ -72,7 +78,7 @@ export default function Trade({ mode }: Props) {
   }
 
   async function submitOrder() {
-    if (!selected) return;
+    if (!selected || submitting) return;
     if (mode === 'BUY' && !walletOk) {
       setError('Укажите адрес кошелька для получения криптовалюты');
       return;
@@ -81,12 +87,17 @@ export default function Trade({ mode }: Props) {
       setError('Укажите реквизиты для выплаты RUB');
       return;
     }
-    setLoading(true);
+    if (selected.expires_at && Date.parse(selected.expires_at) < Date.now()) {
+      setError('Котировка истекла. Получите новую.');
+      setConfirm(false);
+      return;
+    }
+    setSubmitting(true);
     setError(null);
     try {
       const body: Record<string, unknown> = {
         quote_id: selected.id,
-        idempotency_key: crypto.randomUUID(),
+        idempotency_key: idempotencyKey,
         payment_method: paymentMethod,
         bank_name: bank,
       };
@@ -103,7 +114,7 @@ export default function Trade({ mode }: Props) {
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   }
 
@@ -196,8 +207,12 @@ export default function Trade({ mode }: Props) {
                 <span className={badgeClass(q.quote_source_type)}>{q.quote_source_type}</span>
               </div>
               <div>Out: {q.amount_out.toFixed(8)} {q.to_asset}</div>
-              <div>RootScore: {q.root_score.toFixed(2)}</div>
+              <div title="Higher is better — rate, fees, latency, reliability">
+                RootScore: {q.root_score.toFixed(2)}
+                {quotes.best?.id === q.id ? ' · best' : ''}
+              </div>
               <div>Fees: {q.total_fee.toFixed(2)}</div>
+              <div className="muted">Expires: {new Date(q.expires_at).toLocaleTimeString()}</div>
               {q.kyc_required && <span className="kyc-label">KYC may be required</span>}
             </div>
           ))}
@@ -227,10 +242,11 @@ export default function Trade({ mode }: Props) {
           {mode === 'SELL' && <p>Payout: {payoutAccount}</p>}
           <p className="notice">Partner requirements may vary. Fiat payments may be identifiable.</p>
           <p className="notice">Это DEMO-режим без реальных денег.</p>
-          <button className="btn primary" onClick={() => void submitOrder()} disabled={loading}>
-            {loading ? 'Создаём…' : 'Создать заявку'}
+          {error && <div className="error">{error}</div>}
+          <button className="btn primary" onClick={() => void submitOrder()} disabled={submitting || loading}>
+            {submitting ? 'Создаём…' : 'Создать заявку'}
           </button>
-          <button className="btn" onClick={() => setConfirm(false)}>Отмена</button>
+          <button className="btn" onClick={() => setConfirm(false)} disabled={submitting}>Отмена</button>
         </div>
       )}
     </div>

@@ -23,29 +23,25 @@ This first version implements a fully working mock/sandbox flow for:
 ### What Works (MVP mock path)
 
 - Telegram Bot with Mini App button and referral `start=ref_CODE`
-- Mini App UI: buy/sell, quotes, orders, history, referrals, profile
-- **Browser DEV auth** (`POST /api/v1/auth/dev`) when Telegram `initData` is missing
-- Mock partner engine with deterministic scenarios; payment requisites revealed for MOCK/SANDBOX
+- Mini App UI: buy/sell, quotes (RootScore), orders, history, referrals, profile
+- **Browser DEV auth** (`POST /api/v1/auth/dev`) when `ENABLE_DEV_ENDPOINTS=true` (forced off in production)
+- Explicit asset registry: RUB ↔ USDT TRC20 / BTC / XMR (SOL/ERC20 = planned)
+- Mock partner engine; MOCK/SANDBOX payment requisites revealed for demo
 - Quote engine with RootScore, parallel partner polling, circuit breaker
-- Order orchestrator with state machine, idempotency, encrypted payment instructions
-- **DEMO simulate-payment** to complete MOCK/SANDBOX orders end-to-end
-- User disputes transition order to `DISPUTED`
-- Webhook processing with signature verification, replay protection, deduplication
-- Polling fallback worker for active orders (per-order error isolation)
-- Immutable ledger with reconciliation
-- Single-level referral rewards (paid once on COMPLETED)
-- Admin API with RBAC and audit logging
-- Emergency stop
-- Production startup guards (rejects weak secrets, MOCK/SANDBOX in production)
+- Order orchestrator with centralized state machine, DB idempotency + payload fingerprint, UNIQUE PI per order
+- **DEMO simulate-payment** (dev endpoints only)
+- User disputes → `DISPUTED`; USER cannot force COMPLETED
+- Webhooks, polling, ledger, referral rewards, admin RBAC, emergency stop
+- Production startup guards (weak secrets, DEV bot token, CORS `*`, MOCK quotes, ENABLE_DEV_ENDPOINTS)
+- Repo-root GitHub Actions CI (`.github/workflows/ci.yml`) with Postgres + Redis
 
 ### What Does NOT Work
 
-- Real money movement
-- Real bank accounts or production partner APIs
-- Custodial wallet
+- Real money movement / REAL partners
+- Solana, ERC20 USDT, and other non-registry routes
+- Custodial wallet / seed phrases
 - KYC/AML bypass
-- Automatic Monero treasury/withdrawals
-- Token, DAO, NFT, staking, AI features
+- Using DEV endpoints in production
 
 ## Architecture
 

@@ -41,21 +41,25 @@ function App() {
       try {
         if (initData) {
           await authTelegram(initData, referral);
+          setDevMode(false);
         } else if (!hasToken()) {
           await authDev();
           setDevMode(true);
         } else {
+          // Existing browser session — still mark as demo browser mode.
           setDevMode(true);
         }
       } catch (e) {
+        // Do NOT fail-open Telegram users onto DEV auth.
         setError(e instanceof Error ? e.message : 'Auth failed');
-        // Still allow UI so users can retry / see Home
-        try {
-          await authDev(900002);
-          setDevMode(true);
-          setError(null);
-        } catch {
-          /* keep error banner */
+        if (!initData) {
+          try {
+            await authDev(900002);
+            setDevMode(true);
+            setError(null);
+          } catch {
+            /* keep error banner */
+          }
         }
       } finally {
         setReady(true);
