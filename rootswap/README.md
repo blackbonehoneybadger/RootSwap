@@ -20,29 +20,28 @@ This first version implements a fully working mock/sandbox flow for:
 | SELL | BTC → RUB |
 | SELL | XMR → RUB |
 
-### What Works
+### What Works (MVP mock path)
 
 - Telegram Bot with Mini App button and referral `start=ref_CODE`
-- Mini App UI: buy/sell, quotes, orders, history, referrals, profile
-- Mock partner engine with deterministic scenarios
+- Mini App UI: buy/sell, quotes (RootScore), orders, history, referrals, profile
+- **Browser DEV auth** (`POST /api/v1/auth/dev`) when `ENABLE_DEV_ENDPOINTS=true` (forced off in production)
+- Explicit asset registry: RUB ↔ USDT TRC20 / BTC / XMR (SOL/ERC20 = planned)
+- Mock partner engine; MOCK/SANDBOX payment requisites revealed for demo
 - Quote engine with RootScore, parallel partner polling, circuit breaker
-- Order orchestrator with state machine, idempotency, encrypted payment instructions
-- Webhook processing with signature verification, replay protection, deduplication
-- Polling fallback worker for active orders
-- Immutable ledger with reconciliation
-- Single-level referral rewards (paid once on COMPLETED)
-- Admin API with RBAC and audit logging
-- Emergency stop
-- Production startup guards (rejects weak secrets, MOCK/SANDBOX in production)
+- Order orchestrator with centralized state machine, DB idempotency + payload fingerprint, UNIQUE PI per order
+- **DEMO simulate-payment** (dev endpoints only)
+- User disputes → `DISPUTED`; USER cannot force COMPLETED
+- Webhooks, polling, ledger, referral rewards, admin RBAC, emergency stop
+- Production startup guards (weak secrets, DEV bot token, CORS `*`, MOCK quotes, ENABLE_DEV_ENDPOINTS)
+- Repo-root GitHub Actions CI (`.github/workflows/ci.yml`) with Postgres + Redis
 
 ### What Does NOT Work
 
-- Real money movement
-- Real bank accounts or production partner APIs
-- Custodial wallet
+- Real money movement / REAL partners
+- Solana, ERC20 USDT, and other non-registry routes
+- Custodial wallet / seed phrases
 - KYC/AML bypass
-- Automatic Monero treasury/withdrawals
-- Token, DAO, NFT, staking, AI features
+- Using DEV endpoints in production
 
 ## Architecture
 
@@ -88,13 +87,16 @@ Services:
 ```bash
 # Start dependencies
 docker compose -f docker-compose.dev.yml up -d postgres redis
+# once: create isolated test DB
+docker compose -f docker-compose.dev.yml exec -T postgres \
+  psql -U rootswap -d rootswap -c "CREATE DATABASE rootswap_test;" || true
 
-# Backend tests
+# Backend tests (SQLite by default; set POSTGRES_TEST_DATABASE_URL for PG order test)
 cd backend
-pip install -r requirements.txt
-export TEST_DATABASE_URL=postgresql+asyncpg://rootswap:rootswap@localhost:5432/rootswap_test
+pip install -r requirements.txt aiosqlite ruff
 export TELEGRAM_BOT_TOKEN="0000000000:DEV_TELEGRAM_BOT_TOKEN_PLACEHOLDER"
-pytest -v
+export POSTGRES_TEST_DATABASE_URL=postgresql+asyncpg://rootswap:rootswap@localhost:5432/rootswap_test
+PYTHONPATH=. pytest -v
 ruff check .
 
 # Mini App build
@@ -103,6 +105,15 @@ npm install
 npm run typecheck
 npm run build
 ```
+
+### Manual MVP check (API)
+
+1. `GET /health`
+2. `POST /api/v1/auth/dev` → JWT
+3. `POST /api/v1/quotes` (BUY RUB→XMR)
+4. `POST /api/v1/orders` with wallet + idempotency key → `payment_instructions`
+5. `POST /api/v1/orders/{id}/simulate-payment` → `COMPLETED`
+6. Or open Mini App at http://localhost:5173 (Vite proxies `/api`) and use «Я оплатил (DEMO)»
 
 ## Project Structure
 

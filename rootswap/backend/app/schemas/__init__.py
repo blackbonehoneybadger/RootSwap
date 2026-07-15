@@ -1,9 +1,18 @@
 from datetime import datetime
+from decimal import Decimal
+from typing import Annotated, Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
 from app.core.enums import OrderDirection, OrderStatus, QuoteSourceType
+from app.core.money import D, money_to_json, q8
+
+Money = Annotated[Decimal, Field()]
+
+
+def _parse_money(v: Any) -> Decimal:
+    return q8(D(v))
 
 
 class TelegramAuthRequest(BaseModel):
@@ -23,10 +32,15 @@ class QuoteCreateRequest(BaseModel):
     from_network: str | None = None
     to_asset: str
     to_network: str | None = None
-    amount_in: float = Field(gt=0)
+    amount_in: Money = Field(gt=0)
     payment_method: str | None = None
     bank_name: str | None = None
     scenario: str | None = None
+
+    @field_validator("amount_in", mode="before")
+    @classmethod
+    def _amount_in(cls, v: Any) -> Decimal:
+        return _parse_money(v)
 
 
 class QuoteResponse(BaseModel):
@@ -37,13 +51,13 @@ class QuoteResponse(BaseModel):
     from_network: str | None
     to_asset: str
     to_network: str | None
-    amount_in: float
-    amount_out: float
-    exchange_rate: float
-    service_fee: float
-    partner_fee: float
-    network_fee: float
-    total_fee: float
+    amount_in: Money
+    amount_out: Money
+    exchange_rate: Money
+    service_fee: Money
+    partner_fee: Money
+    network_fee: Money
+    total_fee: Money
     root_score: float
     quote_source_type: QuoteSourceType
     expires_at: datetime
@@ -51,6 +65,18 @@ class QuoteResponse(BaseModel):
     estimated_time_seconds: int = 600
 
     model_config = {"from_attributes": True}
+
+    @field_serializer(
+        "amount_in",
+        "amount_out",
+        "exchange_rate",
+        "service_fee",
+        "partner_fee",
+        "network_fee",
+        "total_fee",
+    )
+    def _ser_money(self, v: Decimal) -> float:
+        return money_to_json(v)
 
 
 class QuoteListResponse(BaseModel):
@@ -62,7 +88,7 @@ class QuoteListResponse(BaseModel):
 
 class OrderCreateRequest(BaseModel):
     quote_id: UUID
-    idempotency_key: str
+    idempotency_key: str = Field(min_length=8, max_length=128)
     wallet_address: str | None = None
     payout_details: dict | None = None
     payment_method: str | None = None
@@ -79,12 +105,21 @@ class PaymentInstructionsResponse(BaseModel):
     masked_card: str | None
     masked_phone: str | None
     deposit_address_masked: str | None
-    amount: float
+    amount: Money
     currency: str
     payment_comment: str | None
     expires_at: datetime
+    recipient_name: str | None = None
+    account_number: str | None = None
+    card_number: str | None = None
+    sbp_phone: str | None = None
+    deposit_address: str | None = None
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("amount")
+    def _ser_amount(self, v: Decimal) -> float:
+        return money_to_json(v)
 
 
 class OrderResponse(BaseModel):
@@ -98,13 +133,13 @@ class OrderResponse(BaseModel):
     from_network: str | None
     to_asset: str
     to_network: str | None
-    amount_in: float
-    amount_out: float
-    exchange_rate: float
-    service_fee: float
-    partner_fee: float
-    network_fee: float
-    total_fee: float
+    amount_in: Money
+    amount_out: Money
+    exchange_rate: Money
+    service_fee: Money
+    partner_fee: Money
+    network_fee: Money
+    total_fee: Money
     quote_source_type: QuoteSourceType
     wallet_address_masked: str | None
     payout_details_masked: str | None
@@ -116,6 +151,18 @@ class OrderResponse(BaseModel):
     payment_instructions: PaymentInstructionsResponse | None = None
 
     model_config = {"from_attributes": True}
+
+    @field_serializer(
+        "amount_in",
+        "amount_out",
+        "exchange_rate",
+        "service_fee",
+        "partner_fee",
+        "network_fee",
+        "total_fee",
+    )
+    def _ser_money(self, v: Decimal) -> float:
+        return money_to_json(v)
 
 
 class DisputeCreateRequest(BaseModel):
@@ -138,8 +185,13 @@ class AdminTransitionRequest(BaseModel):
 
 
 class AdminRefundRequest(BaseModel):
-    amount: float
+    amount: Money = Field(gt=0)
     reason: str | None = None
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _amount(cls, v: Any) -> Decimal:
+        return _parse_money(v)
 
 
 class AdminDisablePartnerRequest(BaseModel):

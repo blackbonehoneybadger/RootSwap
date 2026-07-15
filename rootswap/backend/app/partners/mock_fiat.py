@@ -92,16 +92,17 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
         else:
             reserve = 1_000_000.0
 
+        amount_in = float(request.amount_in)
         if request.direction == OrderDirection.BUY.value:
             rate = self._rate("RUB", request.to_asset)
-            amount_out = request.amount_in * rate
+            amount_out = amount_in * rate
             network_fee = 0.0001 if request.to_asset == "BTC" else 0.01
         else:
             rate = self._rate(request.from_asset, "RUB")
-            amount_out = request.amount_in * rate
+            amount_out = amount_in * rate
             network_fee = 50.0
 
-        partner_fee = request.amount_in * 0.005
+        partner_fee = amount_in * 0.005
         if scenario == "slow_processing":
             await asyncio.sleep(0.1)
 
@@ -120,8 +121,8 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
 
     async def create_fiat_order(self, request: OrderRequest) -> OrderResult:
         scenario = self._get_scenario(request)
-        if scenario == "partner_failure":
-            raise RuntimeError("Mock partner failure before order")
+        if scenario in ("partner_failure", "create_failure"):
+            raise RuntimeError("Mock partner failure on create_fiat_order")
 
         partner_order_id = self._partner_order_id(request.idempotency_key)
         status = "awaiting_payment"
@@ -135,6 +136,9 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
             "partner_order_id": partner_order_id,
             "status": status,
             "scenario": scenario,
+            "amount_in": float(request.amount_in),
+            "payment_method": request.payment_method or "SBP",
+            "bank_name": request.bank_name or "Sber",
             "created_at": datetime.now(UTC).isoformat(),
         }
         self._orders[partner_order_id] = order_data
@@ -146,33 +150,38 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
             payment_instructions=payment_instructions,
             raw_response=order_data,
         )
-
     async def get_payment_instructions(self, partner_order_id: str) -> PaymentInstructionsResult:
         order = self._orders.get(partner_order_id, {})
         scenario = order.get("scenario", "success")
-        expires = datetime.now(UTC) + timedelta(minutes=15)
+        amount = float(order.get("amount_in") or 10000.0)
+        method = order.get("payment_method") or "SBP"
+        bank = order.get("bank_name") or "Sber"
+        from app.core.config import get_settings
+
+        ttl = get_settings().payment_instructions_ttl_seconds
+        expires = datetime.now(UTC) + timedelta(seconds=ttl)
         if scenario == "expired_payment":
             expires = datetime.now(UTC) - timedelta(minutes=1)
 
         return PaymentInstructionsResult(
-            payment_method="SBP",
-            bank_name="Sber",
+            payment_method=method,
+            bank_name=bank,
             recipient_name="Mock Recipient",
             account_number="40817810099910004312",
             card_number="5536910000001234",
             sbp_phone="+79001234567",
             deposit_address="T" + "A" * 33,
-            amount=10000.0,
+            amount=amount,
             currency="RUB",
             payment_comment=f"PAY-{partner_order_id[-8:]}",
             expires_at=expires,
         )
 
     async def get_order_status(self, partner_order_id: str) -> PartnerOrderStatus:
-        order = self._orders.get(partner_order_id, {"status": "processing"})
+        order = self._orders.get(partner_order_id, {"status": "awaiting_payment"})
         return PartnerOrderStatus(
             partner_order_id=partner_order_id,
-            status=order.get("status", "processing"),
+            status=order.get("status", "awaiting_payment"),
             message="Mock status",
             raw_response=order,
         )
@@ -212,7 +221,10 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
             return False, {}
         if not signature or not timestamp:
             return False, {}
-        expected = hmac.new(self.webhook_secret.encode(), payload, hashlib.sha256).hexdigest()
+        from app.security import signed_webhook_message
+
+        message = signed_webhook_message(timestamp, payload)
+        expected = hmac.new(self.webhook_secret.encode(), message, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, signature):
             return False, {}
         try:
@@ -221,7 +233,10 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
                 return False, {}
         except ValueError:
             return False, {}
-        data = json.loads(payload)
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            return False, {}
         return True, data
 
     def build_webhook_payload(
@@ -237,10 +252,14 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
             "timestamp": int(datetime.now(UTC).timestamp()),
         }
         body = json.dumps(payload).encode()
-        signature = hmac.new(self.webhook_secret.encode(), body, hashlib.sha256).hexdigest()
+        from app.security import signed_webhook_message
+
+        ts = str(payload["timestamp"])
+        message = signed_webhook_message(ts, body)
+        signature = hmac.new(self.webhook_secret.encode(), message, hashlib.sha256).hexdigest()
         headers = {
             "X-Mock-Signature": signature,
-            "X-Mock-Timestamp": str(payload["timestamp"]),
+            "X-Mock-Timestamp": ts,
         }
         return body, headers
 

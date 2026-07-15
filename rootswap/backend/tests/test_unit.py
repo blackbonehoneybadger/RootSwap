@@ -1,6 +1,6 @@
 import pytest
 
-from app.core.enums import CircuitBreakerState, OrderStatus
+from app.core.enums import ActorType, CircuitBreakerState, OrderStatus
 from app.core.exceptions import InvalidTransitionError, ValidationError
 from app.security import mask_sensitive_data, validate_wallet_address
 from app.services.fees import calculate_fees, calculate_root_score
@@ -8,9 +8,11 @@ from app.services.state_machine import OrderStateMachine
 
 
 def test_calculate_fees():
+    from app.core.money import D
+
     service_fee, total = calculate_fees(10000, 50, 10, 0.015)
-    assert service_fee == 150.0
-    assert total == 210.0
+    assert service_fee == D("150")
+    assert total == D("210")
 
 
 def test_root_score():
@@ -51,12 +53,55 @@ def test_invalid_wallet():
 def test_state_machine_valid():
     sm = OrderStateMachine()
     assert sm.can_transition(OrderStatus.CREATED, OrderStatus.QUOTE_CONFIRMED)
+    sm.validate_transition(OrderStatus.CREATED, OrderStatus.QUOTE_CONFIRMED, ActorType.SYSTEM, 1)
 
 
 def test_state_machine_invalid():
     sm = OrderStateMachine()
     with pytest.raises(InvalidTransitionError):
-        sm.validate_transition(OrderStatus.COMPLETED, OrderStatus.CREATED, None, 1)
+        sm.validate_transition(OrderStatus.COMPLETED, OrderStatus.CREATED, ActorType.SYSTEM, 1)
+
+
+def test_state_machine_forbids_failed_to_completed():
+    sm = OrderStateMachine()
+    with pytest.raises(InvalidTransitionError):
+        sm.validate_transition(OrderStatus.FAILED, OrderStatus.COMPLETED, ActorType.ADMIN, 1)
+
+
+def test_state_machine_forbids_cancelled_to_processing():
+    sm = OrderStateMachine()
+    with pytest.raises(InvalidTransitionError):
+        sm.validate_transition(OrderStatus.CANCELLED, OrderStatus.PROCESSING, ActorType.SYSTEM, 1)
+
+
+def test_state_machine_user_cannot_complete():
+    sm = OrderStateMachine()
+    with pytest.raises(InvalidTransitionError):
+        sm.validate_transition(
+            OrderStatus.PAYOUT_SENT, OrderStatus.COMPLETED, ActorType.USER, 1
+        )
+
+
+def test_state_machine_user_can_dispute():
+    sm = OrderStateMachine()
+    sm.validate_transition(
+        OrderStatus.PAYMENT_DETECTED, OrderStatus.DISPUTED, ActorType.USER, 1
+    )
+
+
+def test_asset_registry_rejects_solana():
+    from app.core.assets import validate_route
+    from app.core.enums import OrderDirection
+
+    with pytest.raises(ValidationError):
+        validate_route(OrderDirection.BUY, "RUB", None, "SOL", "SOL", 10000)
+
+
+def test_asset_registry_accepts_xmr():
+    from app.core.assets import validate_route
+    from app.core.enums import OrderDirection
+
+    validate_route(OrderDirection.BUY, "RUB", None, "XMR", "XMR", 10000)
 
 
 def test_mask_sensitive_data():
@@ -64,3 +109,11 @@ def test_mask_sensitive_data():
     assert "5536" in masked["card_number"]
     assert "1234" in masked["card_number"]
     assert "*" in masked["card_number"]
+
+
+def test_money_decimal_quantize():
+    from app.core.money import D, q8
+
+    assert q8("0.1") + q8("0.2") == D("0.30000000")
+    assert q8("0.000000095") == D("0.00000010") or q8("0.00000009") == D("0.00000009")
+    assert q8("1.234567891") == D("1.23456789")

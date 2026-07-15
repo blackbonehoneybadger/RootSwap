@@ -85,7 +85,7 @@ def upgrade() -> None:
     op.create_table(
         "payment_instructions",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("order_id", postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column("order_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("partner_order_id", sa.String(128)),
         sa.Column("payment_method", sa.String(64), nullable=False),
         sa.Column("bank_name", sa.String(128)),
@@ -129,11 +129,14 @@ def upgrade() -> None:
         sa.Column("total_fee", sa.Numeric(24, 8), nullable=False),
         sa.Column("quote_source_type", sa.Enum("MOCK", "SANDBOX", "REAL", name="quote_source_type", create_type=False)),
         sa.Column("idempotency_key", sa.String(128), nullable=False, unique=True),
+        sa.Column("idempotency_fingerprint", sa.String(64), nullable=True),
         sa.Column("wallet_address_encrypted", sa.Text()),
         sa.Column("wallet_address_masked", sa.String(255)),
         sa.Column("payout_details_encrypted", sa.Text()),
         sa.Column("payout_details_masked", sa.String(255)),
-        sa.Column("payment_instructions_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("payment_instructions.id")),
+        # Nullable pointer without FK — ownership is payment_instructions.order_id.
+        # Bidirectional FKs caused circular FK violations on PostgreSQL inserts.
+        sa.Column("payment_instructions_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("version", sa.Integer(), server_default="1"),
         sa.Column("completed_at", sa.DateTime(timezone=True)),
         sa.Column("expired_at", sa.DateTime(timezone=True)),
@@ -141,6 +144,9 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
     op.create_foreign_key("fk_payment_instructions_order", "payment_instructions", "orders", ["order_id"], ["id"])
+    op.create_unique_constraint(
+        "uq_payment_instructions_order_id", "payment_instructions", ["order_id"]
+    )
     op.create_table(
         "order_events",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),

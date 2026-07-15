@@ -26,17 +26,26 @@ export default function Trade({ mode }: Props) {
   const [paymentMethod, setPaymentMethod] = useState('SBP');
   const [bank, setBank] = useState('Sber');
   const [wallet, setWallet] = useState('');
+  const [payoutAccount, setPayoutAccount] = useState('');
   const [quotes, setQuotes] = useState<{ best: Quote | null; all: Quote[] } | null>(null);
   const [selected, setSelected] = useState<Quote | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   const route = ROUTES[mode][routeIdx];
+  const walletOk = wallet.trim().length >= 11;
+  const payoutOk = payoutAccount.trim().length >= 5;
 
   async function fetchQuotes() {
     setLoading(true);
     setError(null);
+    setQuotes(null);
+    setSelected(null);
+    setConfirm(false);
+    setIdempotencyKey(crypto.randomUUID());
     try {
       const body: Record<string, unknown> = {
         direction: mode,
@@ -54,6 +63,11 @@ export default function Trade({ mode }: Props) {
         body.to_asset = route.to;
       }
       const res = await createQuote(body);
+      if (!res.all.length) {
+        setError('Нет доступных котировок. Попробуйте другую сумму.');
+        setQuotes(null);
+        return;
+      }
       setQuotes({ best: res.best, all: res.all });
       setSelected(res.best);
     } catch (e) {
@@ -64,23 +78,43 @@ export default function Trade({ mode }: Props) {
   }
 
   async function submitOrder() {
-    if (!selected) return;
-    setLoading(true);
+    if (!selected || submitting) return;
+    if (mode === 'BUY' && !walletOk) {
+      setError('Укажите адрес кошелька для получения криптовалюты');
+      return;
+    }
+    if (mode === 'SELL' && !payoutOk) {
+      setError('Укажите реквизиты для выплаты RUB');
+      return;
+    }
+    if (selected.expires_at && Date.parse(selected.expires_at) < Date.now()) {
+      setError('Котировка истекла. Получите новую.');
+      setConfirm(false);
+      return;
+    }
+    setSubmitting(true);
     setError(null);
     try {
       const body: Record<string, unknown> = {
         quote_id: selected.id,
-        idempotency_key: crypto.randomUUID(),
+        idempotency_key: idempotencyKey,
         payment_method: paymentMethod,
         bank_name: bank,
       };
-      if (mode === 'BUY') body.wallet_address = wallet;
+      if (mode === 'BUY') body.wallet_address = wallet.trim();
+      if (mode === 'SELL') {
+        body.payout_details = {
+          payment_method: paymentMethod,
+          bank,
+          account: payoutAccount.trim(),
+        };
+      }
       const order = await createOrder(body);
       nav(`/order/${order.id}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   }
 
@@ -90,6 +124,8 @@ export default function Trade({ mode }: Props) {
         <button className="back" onClick={() => nav('/')}>←</button>
         <h1>{mode === 'BUY' ? 'Купить' : 'Продать'}</h1>
       </header>
+
+      <div className="demo-banner demo-inline">DEMO MODE — no real money</div>
 
       <label className="field">
         Направление
@@ -126,12 +162,33 @@ export default function Trade({ mode }: Props) {
       {mode === 'BUY' && (
         <label className="field">
           Адрес кошелька ({route.to} {'network' in route ? route.network : ''})
-          <input value={wallet} onChange={(e) => setWallet(e.target.value)} placeholder="Wallet address" />
+          <input
+            value={wallet}
+            onChange={(e) => setWallet(e.target.value)}
+            placeholder="Wallet address"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          {!walletOk && wallet.trim() !== '' && (
+            <span className="field-error">Адрес слишком короткий</span>
+          )}
         </label>
       )}
 
-      <button className="btn primary" onClick={fetchQuotes} disabled={loading}>
-        Получить котировку
+      {mode === 'SELL' && (
+        <label className="field">
+          {paymentMethod === 'SBP' ? 'Телефон СБП' : paymentMethod === 'card_transfer' ? 'Номер карты' : 'Счёт'}
+          <input
+            value={payoutAccount}
+            onChange={(e) => setPayoutAccount(e.target.value)}
+            placeholder={paymentMethod === 'SBP' ? '+79001234567' : 'Реквизиты выплаты'}
+            autoComplete="off"
+          />
+        </label>
+      )}
+
+      <button className="btn primary" onClick={() => void fetchQuotes()} disabled={loading}>
+        {loading ? 'Ищем…' : 'Получить котировку'}
       </button>
 
       {error && <div className="error">{error}</div>}
@@ -150,13 +207,23 @@ export default function Trade({ mode }: Props) {
                 <span className={badgeClass(q.quote_source_type)}>{q.quote_source_type}</span>
               </div>
               <div>Out: {q.amount_out.toFixed(8)} {q.to_asset}</div>
-              <div>RootScore: {q.root_score.toFixed(2)}</div>
+              <div title="Higher is better — rate, fees, latency, reliability">
+                RootScore: {q.root_score.toFixed(2)}
+                {quotes.best?.id === q.id ? ' · best' : ''}
+              </div>
               <div>Fees: {q.total_fee.toFixed(2)}</div>
+              <div className="muted">Expires: {new Date(q.expires_at).toLocaleTimeString()}</div>
               {q.kyc_required && <span className="kyc-label">KYC may be required</span>}
             </div>
           ))}
           {selected && (
-            <button className="btn" onClick={() => setConfirm(true)}>Подтвердить</button>
+            <button
+              className="btn"
+              onClick={() => setConfirm(true)}
+              disabled={mode === 'BUY' ? !walletOk : !payoutOk}
+            >
+              Подтвердить
+            </button>
           )}
         </div>
       )}
@@ -169,10 +236,17 @@ export default function Trade({ mode }: Props) {
           <p>Amount out: {selected.amount_out}</p>
           <p>Fee: {selected.total_fee}</p>
           <p>Source: {selected.quote_source_type}</p>
-          {wallet && <p>Wallet: {wallet.slice(0, 8)}...{wallet.slice(-6)}</p>}
+          {mode === 'BUY' && wallet && (
+            <p>Wallet: {wallet.slice(0, 8)}...{wallet.slice(-6)}</p>
+          )}
+          {mode === 'SELL' && <p>Payout: {payoutAccount}</p>}
           <p className="notice">Partner requirements may vary. Fiat payments may be identifiable.</p>
-          <button className="btn primary" onClick={submitOrder} disabled={loading}>Создать заявку</button>
-          <button className="btn" onClick={() => setConfirm(false)}>Отмена</button>
+          <p className="notice">Это DEMO-режим без реальных денег.</p>
+          {error && <div className="error">{error}</div>}
+          <button className="btn primary" onClick={() => void submitOrder()} disabled={submitting || loading}>
+            {submitting ? 'Создаём…' : 'Создать заявку'}
+          </button>
+          <button className="btn" onClick={() => setConfirm(false)} disabled={submitting}>Отмена</button>
         </div>
       )}
     </div>

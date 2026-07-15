@@ -1,7 +1,7 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { authTelegram } from './api';
+import { authDev, authTelegram, hasToken } from './api';
 import Home from './pages/Home';
 import Trade from './pages/Trade';
 import OrderPage from './pages/Order';
@@ -27,6 +27,8 @@ declare global {
 function App() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [devMode, setDevMode] = useState(false);
+  const allowDevAuth = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEV_AUTH !== 'false';
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
@@ -36,23 +38,47 @@ function App() {
     const startParam = tg?.initDataUnsafe?.start_param;
     const referral = startParam?.startsWith('ref_') ? startParam.slice(4) : undefined;
 
-    if (initData) {
-      authTelegram(initData, referral)
-        .then(() => setReady(true))
-        .catch((e) => {
-          setError(e.message);
-          setReady(true);
-        });
-    } else {
-      setReady(true);
-    }
-  }, []);
+    const boot = async () => {
+      try {
+        if (initData) {
+          await authTelegram(initData, referral);
+          setDevMode(false);
+        } else if (allowDevAuth && !hasToken()) {
+          await authDev();
+          setDevMode(true);
+        } else if (allowDevAuth && hasToken()) {
+          setDevMode(true);
+        } else if (!initData) {
+          setError('Telegram auth required. Open inside Telegram Mini App.');
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Auth failed');
+        if (allowDevAuth && !initData) {
+          try {
+            await authDev(900002);
+            setDevMode(true);
+            setError(null);
+          } catch {
+            /* keep error banner */
+          }
+        }
+      } finally {
+        setReady(true);
+      }
+    };
+    void boot();
+  }, [allowDevAuth]);
 
   if (!ready) return <div className="loading">Loading RootSwap...</div>;
-  if (error) return <div className="error">Auth: {error}. Dev mode without Telegram.</div>;
 
   return (
     <BrowserRouter>
+      {devMode && (
+        <div className="demo-banner" role="status">
+          DEMO MODE — browser auth · no real money
+        </div>
+      )}
+      {error && <div className="error">Auth: {error}</div>}
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/buy" element={<Trade mode="BUY" />} />

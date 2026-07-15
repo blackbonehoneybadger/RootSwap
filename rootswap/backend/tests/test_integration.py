@@ -68,6 +68,76 @@ async def test_create_order(client, auth_headers):
     order = order_resp.json()
     assert order["status"] == "AWAITING_PAYMENT"
     assert order["payment_instructions"] is not None
+    pi = order["payment_instructions"]
+    assert pi["amount"] == 10000.0
+    # MOCK reveal for demo copy-paste
+    assert pi["sbp_phone"] == "+79001234567"
+    assert pi["account_number"]
+    assert pi["payment_comment"]
+
+
+@pytest.mark.asyncio
+async def test_buy_requires_wallet(client, auth_headers):
+    quote_resp = await client.post(
+        "/api/v1/quotes",
+        headers=auth_headers,
+        json={
+            "direction": "BUY",
+            "from_asset": "RUB",
+            "to_asset": "XMR",
+            "to_network": "XMR",
+            "amount_in": 10000,
+        },
+    )
+    quote_id = quote_resp.json()["best"]["id"]
+    order_resp = await client.post(
+        "/api/v1/orders",
+        headers=auth_headers,
+        json={"quote_id": quote_id, "idempotency_key": str(uuid.uuid4())},
+    )
+    assert order_resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_simulate_payment_completes_mock_order(client, auth_headers):
+    quote_resp = await client.post(
+        "/api/v1/quotes",
+        headers=auth_headers,
+        json={
+            "direction": "BUY",
+            "from_asset": "RUB",
+            "to_asset": "XMR",
+            "to_network": "XMR",
+            "amount_in": 12000,
+        },
+    )
+    quote_id = quote_resp.json()["best"]["id"]
+    order_resp = await client.post(
+        "/api/v1/orders",
+        headers=auth_headers,
+        json={
+            "quote_id": quote_id,
+            "idempotency_key": str(uuid.uuid4()),
+            "wallet_address": XMR_TEST_ADDRESS,
+        },
+    )
+    order_id = order_resp.json()["id"]
+    sim = await client.post(
+        f"/api/v1/orders/{order_id}/simulate-payment",
+        headers=auth_headers,
+    )
+    assert sim.status_code == 200, sim.text
+    assert sim.json()["status"] == "COMPLETED"
+
+
+@pytest.mark.asyncio
+async def test_dev_auth(client):
+    resp = await client.post(
+        "/api/v1/auth/dev",
+        json={"telegram_id": 910001, "username": "browser_dev"},
+    )
+    assert resp.status_code == 200
+    assert "access_token" in resp.json()
 
 
 @pytest.mark.asyncio
@@ -190,8 +260,7 @@ async def test_invalid_webhook_signature(client):
         json={"event_id": "x", "partner_order_id": "y", "status": "completed"},
         headers={"X-Mock-Signature": "bad", "X-Mock-Timestamp": "123"},
     )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "rejected"
+    assert resp.status_code == 401
 
 
 @pytest.mark.asyncio

@@ -39,6 +39,7 @@ class OrderRequest:
     payment_method: str | None
     bank_name: str | None
     idempotency_key: str
+    amount_in: float = 0.0
     scenario: str | None = None
 
 

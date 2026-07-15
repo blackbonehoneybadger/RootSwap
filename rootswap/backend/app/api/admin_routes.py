@@ -6,12 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import domain_error_handler, require_admin
-from app.core.config import get_settings
 from app.core.enums import ActorType, AdminRole, OrderStatus
 from app.core.exceptions import DomainError
 from app.db.session import get_db
 from app.models import AuditLog, Dispute, Order, Partner, RiskFlag, WebhookEvent
-from app.observability.metrics import EMERGENCY_STOP
 from app.schemas import (
     AdminDisablePartnerRequest,
     AdminRefundRequest,
@@ -262,9 +260,9 @@ async def emergency_stop_on(
     session: AsyncSession = Depends(get_db),
     role: AdminRole = Depends(require_admin(AdminRole.ADMIN)),
 ):
-    settings = get_settings()
-    settings.emergency_stop = True
-    EMERGENCY_STOP.set(1)
+    from app.services.emergency_stop import set_emergency_stop
+
+    set_emergency_stop(True)
     await _audit(session, role, "emergency_stop_on", reason="manual", request=request)
     return {"emergency_stop": True}
 
@@ -275,8 +273,8 @@ async def emergency_stop_off(
     session: AsyncSession = Depends(get_db),
     role: AdminRole = Depends(require_admin(AdminRole.ADMIN)),
 ):
-    settings = get_settings()
-    settings.emergency_stop = False
-    EMERGENCY_STOP.set(0)
+    from app.services.emergency_stop import set_emergency_stop
+
+    set_emergency_stop(False)
     await _audit(session, role, "emergency_stop_off", request=request)
     return {"emergency_stop": False}
