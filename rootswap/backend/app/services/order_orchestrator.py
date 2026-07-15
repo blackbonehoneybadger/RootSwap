@@ -3,9 +3,8 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.datetime_utils import ensure_aware, utcnow
-
 from app.core.config import get_settings
+from app.core.datetime_utils import ensure_aware, utcnow
 from app.core.enums import ActorType, OrderDirection, OrderStatus
 from app.core.exceptions import (
     ConflictError,
@@ -174,9 +173,12 @@ class OrderOrchestrator:
             payment_comment=instructions.payment_comment,
             expires_at=instructions.expires_at,
         )
+        # Flush order is critical for PostgreSQL (non-deferrable FKs):
+        # 1) INSERT payment_instructions with order_id (order already exists)
+        # 2) UPDATE orders.payment_instructions_id (soft pointer, no FK)
         session.add(pi)
+        await session.flush()
         order.payment_instructions_id = pi.id
-        pi.order_id = order.id
         order.expired_at = instructions.expires_at
         await session.flush()
         return order

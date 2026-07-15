@@ -123,8 +123,12 @@ class Order(Base, TimestampMixin):
     wallet_address_masked: Mapped[str | None] = mapped_column(String(255), nullable=True)
     payout_details_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     payout_details_masked: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Denormalized pointer only — NO FK here.
+    # Owning FK is payment_instructions.order_id → orders.id.
+    # A bidirectional FK pair caused ForeignKeyViolationError on PostgreSQL
+    # during flush (SQLite tests hid it because FK enforcement differs).
     payment_instructions_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("payment_instructions.id"), nullable=True
+        UUID(as_uuid=True), nullable=True
     )
     version: Mapped[int] = mapped_column(Integer, default=1)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

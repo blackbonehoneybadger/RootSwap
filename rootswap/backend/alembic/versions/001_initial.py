@@ -133,7 +133,9 @@ def upgrade() -> None:
         sa.Column("wallet_address_masked", sa.String(255)),
         sa.Column("payout_details_encrypted", sa.Text()),
         sa.Column("payout_details_masked", sa.String(255)),
-        sa.Column("payment_instructions_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("payment_instructions.id")),
+        # Nullable pointer without FK — ownership is payment_instructions.order_id.
+        # Bidirectional FKs caused circular FK violations on PostgreSQL inserts.
+        sa.Column("payment_instructions_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("version", sa.Integer(), server_default="1"),
         sa.Column("completed_at", sa.DateTime(timezone=True)),
         sa.Column("expired_at", sa.DateTime(timezone=True)),
