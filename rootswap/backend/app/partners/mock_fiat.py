@@ -221,7 +221,10 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
             return False, {}
         if not signature or not timestamp:
             return False, {}
-        expected = hmac.new(self.webhook_secret.encode(), payload, hashlib.sha256).hexdigest()
+        from app.security import signed_webhook_message
+
+        message = signed_webhook_message(timestamp, payload)
+        expected = hmac.new(self.webhook_secret.encode(), message, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, signature):
             return False, {}
         try:
@@ -230,7 +233,10 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
                 return False, {}
         except ValueError:
             return False, {}
-        data = json.loads(payload)
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            return False, {}
         return True, data
 
     def build_webhook_payload(
@@ -246,10 +252,14 @@ class MockFiatPartnerAdapter(FiatPartnerAdapter):
             "timestamp": int(datetime.now(UTC).timestamp()),
         }
         body = json.dumps(payload).encode()
-        signature = hmac.new(self.webhook_secret.encode(), body, hashlib.sha256).hexdigest()
+        from app.security import signed_webhook_message
+
+        ts = str(payload["timestamp"])
+        message = signed_webhook_message(ts, body)
+        signature = hmac.new(self.webhook_secret.encode(), message, hashlib.sha256).hexdigest()
         headers = {
             "X-Mock-Signature": signature,
-            "X-Mock-Timestamp": str(payload["timestamp"]),
+            "X-Mock-Timestamp": ts,
         }
         return body, headers
 

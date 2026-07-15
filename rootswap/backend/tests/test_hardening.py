@@ -42,14 +42,17 @@ async def test_dev_auth_blocked_in_production_even_if_flag(monkeypatch):
     monkeypatch.setenv("JWT_SECRET", "production-grade-jwt-secret-32chars-min")
     monkeypatch.setenv("ENCRYPTION_KEY", "production-encryption-key-32b!!!!")
     monkeypatch.setenv("REDIS_PASSWORD", "redis-prod-password")
-    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "prod-webhook-secret-strong")
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "prod-webhook-secret-strong-xx")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456789:AARealLookingBotTokenValueXX")
     monkeypatch.setenv("CORS_ORIGINS", "https://app.example.com")
+    monkeypatch.setenv("ADMIN_API_KEYS", "ADMIN:production-admin-key-at-least-24ch")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://rootswap:not-default-pass@localhost:5432/rootswap")
     get_settings.cache_clear()
     try:
         settings = get_settings()
         assert settings.dev_endpoints_allowed is False
         assert settings.enable_dev_endpoints is False
+        assert settings.debug is False
     finally:
         get_settings.cache_clear()
 

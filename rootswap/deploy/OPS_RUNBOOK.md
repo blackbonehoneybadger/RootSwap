@@ -67,3 +67,12 @@ Effect: new order creates return 503 (`EmergencyStopError`).
 
 Supported: RUB, USDT/TRC20, BTC, XMR  
 Planned/disabled: SOL, USDT/ERC20
+
+## Security checklist (runtime)
+
+- [ ] `ENVIRONMENT=production` with all `validate_production` secrets rotated
+- [ ] `TRUSTED_PROXY_IPS` set to nginx container/host IPs
+- [ ] OpenAPI `/docs` disabled (automatic in production)
+- [ ] TLS via `nginx.staging-https.conf` (or equivalent)
+- [ ] Telegram bot token never logged; admin keys ≥24 chars
+- [ ] Monitor 401 webhook spikes and rate-limit 429/503

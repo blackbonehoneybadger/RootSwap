@@ -41,14 +41,14 @@ class WebhookService:
                 external_event_id=payload_dict.get("event_id", str(uuid.uuid4())),
                 partner_order_id=payload_dict.get("partner_order_id"),
                 event_type=payload_dict.get("status", "unknown"),
-                payload_hash=hash_payload(payload_dict or {"raw": payload.decode(errors="ignore")[:100]}),
+                payload_hash=hash_payload(payload_dict or {"raw": "***"}),
                 raw_payload={"invalid": True},
                 signature_valid=False,
                 processing_status=WebhookProcessingStatus.FAILED,
                 processing_error="Invalid signature",
             )
             session.add(event)
-            return {"status": "rejected", "reason": "invalid_signature"}
+            return {"status": "rejected", "reason": "invalid_signature", "http_status": 401}
 
         external_event_id = data.get("event_id", hash_payload(data))
         existing = await session.execute(

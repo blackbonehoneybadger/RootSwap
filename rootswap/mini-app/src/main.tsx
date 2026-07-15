@@ -28,6 +28,7 @@ function App() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [devMode, setDevMode] = useState(false);
+  const allowDevAuth = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEV_AUTH !== 'false';
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
@@ -42,17 +43,17 @@ function App() {
         if (initData) {
           await authTelegram(initData, referral);
           setDevMode(false);
-        } else if (!hasToken()) {
+        } else if (allowDevAuth && !hasToken()) {
           await authDev();
           setDevMode(true);
-        } else {
-          // Existing browser session — still mark as demo browser mode.
+        } else if (allowDevAuth && hasToken()) {
           setDevMode(true);
+        } else if (!initData) {
+          setError('Telegram auth required. Open inside Telegram Mini App.');
         }
       } catch (e) {
-        // Do NOT fail-open Telegram users onto DEV auth.
         setError(e instanceof Error ? e.message : 'Auth failed');
-        if (!initData) {
+        if (allowDevAuth && !initData) {
           try {
             await authDev(900002);
             setDevMode(true);
@@ -66,7 +67,7 @@ function App() {
       }
     };
     void boot();
-  }, []);
+  }, [allowDevAuth]);
 
   if (!ready) return <div className="loading">Loading RootSwap...</div>;
 

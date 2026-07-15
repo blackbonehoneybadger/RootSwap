@@ -82,9 +82,11 @@ async def test_production_rejects_mock(monkeypatch, session, seed_partners):
     monkeypatch.setenv("JWT_SECRET", "production-jwt-secret-key-32chars-minimum!!")
     monkeypatch.setenv("ENCRYPTION_KEY", "production-encryption-key-32bytes!!")
     monkeypatch.setenv("REDIS_PASSWORD", "redis-prod-password")
-    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "prod-webhook-secret-value")
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "prod-webhook-secret-value-long")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456789:AARealLookingBotTokenValueXXXX")
     monkeypatch.setenv("CORS_ORIGINS", "https://app.example.com")
+    monkeypatch.setenv("ADMIN_API_KEYS", "ADMIN:production-admin-key-at-least-24ch")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://rootswap:not-default-pass@localhost:5432/rootswap")
     from app.core.config import get_settings
 
     get_settings.cache_clear()

@@ -260,8 +260,7 @@ async def test_invalid_webhook_signature(client):
         json={"event_id": "x", "partner_order_id": "y", "status": "completed"},
         headers={"X-Mock-Signature": "bad", "X-Mock-Timestamp": "123"},
     )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "rejected"
+    assert resp.status_code == 401
 
 
 @pytest.mark.asyncio

@@ -99,13 +99,14 @@ Central map: `app/services/state_machine.py` (`ALLOWED_TRANSITIONS`).
 Happy path: `CREATED → QUOTE_CONFIRMED → AWAITING_PAYMENT → … → COMPLETED`.  
 `USER` may only target `CANCELLED` / `DISPUTED`. Simulate-payment uses `SYSTEM`.
 
-## Remaining before real money (cannot be finished in this repo alone)
+## Security hardening (code)
 
-These require external work — **not** implemented as live REAL rails:
-
-1. Partner contracts + REAL adapters
-2. Security audit + legal/KYC review
-3. Ops on-call / insurance / reserve policy
-
-Code-side production guards already block weak secrets, MOCK in production,
-DEV endpoints, and CORS `*`.
+- JWT: `iss` / `aud` / `iat` / `nbf` / `jti`, HS256-only, 1h TTL
+- Telegram initData: ≤1h age, future `auth_date` rejected, Redis replay store
+- Admin keys: SHA256+`compare_digest` scan; weak keys blocked in production
+- Webhooks: HMAC binds `timestamp.body`; invalid signature → **401**
+- Middleware: security headers, body size limit, auth/webhook rate buckets, trusted-proxy `X-Real-IP`
+- Production: no OpenAPI docs, `DEBUG` forced off, DEV endpoints forced off
+- Logs: structlog redaction of secrets/tokens
+- Mini App: DEV auth only in Vite `DEV` builds; JWT in `sessionStorage`
+- Nginx: `server_tokens off`, body size caps, CSP, Permissions-Policy; HTTPS sample with HSTS
