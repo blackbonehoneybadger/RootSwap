@@ -22,6 +22,24 @@ export interface Quote {
   estimated_time_seconds: number;
 }
 
+export interface PaymentInstructions {
+  masked_account: string | null;
+  masked_card: string | null;
+  masked_phone: string | null;
+  deposit_address_masked: string | null;
+  payment_method: string;
+  bank_name: string | null;
+  amount: number;
+  currency: string;
+  payment_comment: string | null;
+  expires_at: string;
+  recipient_name?: string | null;
+  account_number?: string | null;
+  card_number?: string | null;
+  sbp_phone?: string | null;
+  deposit_address?: string | null;
+}
+
 export interface Order {
   id: string;
   quote_id: string;
@@ -35,18 +53,7 @@ export interface Order {
   quote_source_type: string;
   wallet_address_masked: string | null;
   created_at: string;
-  payment_instructions?: {
-    masked_account: string | null;
-    masked_card: string | null;
-    masked_phone: string | null;
-    deposit_address_masked: string | null;
-    payment_method: string;
-    bank_name: string | null;
-    amount: number;
-    currency: string;
-    payment_comment: string | null;
-    expires_at: string;
-  };
+  payment_instructions?: PaymentInstructions;
 }
 
 let token: string | null = localStorage.getItem('rootswap_token');
@@ -56,6 +63,33 @@ export function setToken(t: string) {
   localStorage.setItem('rootswap_token', t);
 }
 
+export function clearToken() {
+  token = null;
+  localStorage.removeItem('rootswap_token');
+}
+
+export function hasToken(): boolean {
+  return Boolean(token);
+}
+
+function errorMessage(err: unknown, fallback: string): string {
+  if (!err || typeof err !== 'object') return fallback;
+  const detail = (err as { detail?: unknown }).detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object' && 'msg' in item) {
+          return String((item as { msg: unknown }).msg);
+        }
+        return JSON.stringify(item);
+      })
+      .join('; ');
+  }
+  return fallback;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -63,9 +97,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   };
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  if (res.status === 401) {
+    clearToken();
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'Request failed');
+    throw new Error(errorMessage(err, 'Request failed'));
   }
   return res.json();
 }
@@ -74,6 +111,20 @@ export async function authTelegram(initData: string, referralCode?: string) {
   const data = await request<{ access_token: string }>('/v1/auth/telegram', {
     method: 'POST',
     body: JSON.stringify({ init_data: initData, referral_code: referralCode }),
+  });
+  setToken(data.access_token);
+  return data;
+}
+
+/** DEV browser auth when Telegram initData is missing. */
+export async function authDev(telegramId = 900001) {
+  const data = await request<{ access_token: string }>('/v1/auth/dev', {
+    method: 'POST',
+    body: JSON.stringify({
+      telegram_id: telegramId,
+      username: 'dev_user',
+      first_name: 'Dev',
+    }),
   });
   setToken(data.access_token);
   return data;
@@ -98,6 +149,10 @@ export async function getOrder(id: string) {
   return request<Order>(`/v1/orders/${id}`);
 }
 
+export async function simulatePayment(orderId: string) {
+  return request<Order>(`/v1/orders/${orderId}/simulate-payment`, { method: 'POST', body: '{}' });
+}
+
 export async function getReferralStats() {
   return request<{
     referral_code: string;
@@ -120,3 +175,12 @@ export function badgeClass(sourceType: string): string {
   if (sourceType === 'SANDBOX') return 'badge badge-sandbox';
   return 'badge badge-mock';
 }
+
+export const FINAL_STATUSES = new Set([
+  'COMPLETED',
+  'CANCELLED',
+  'EXPIRED',
+  'FAILED',
+  'REFUNDED',
+  'REFUND_FAILED',
+]);

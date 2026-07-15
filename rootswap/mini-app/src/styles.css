@@ -81,8 +81,20 @@ body {
   background: #2f3336; color: #71767b;
 }
 .timeline-step.active { background: #1d9bf0; color: #fff; }
+.timeline-step.done { background: #00ba7c33; color: #00ba7c; }
 
 .countdown { color: #ffd400; font-weight: 600; }
 .order-row { cursor: pointer; }
 .repeat { font-size: 0.8rem; color: #1d9bf0; }
 .empty { color: #71767b; text-align: center; padding: 40px; }
+
+.demo-banner {
+  background: #ffd40022; border-bottom: 1px solid #ffd40055;
+  color: #ffd400; text-align: center; padding: 8px; font-size: 0.8rem;
+}
+.demo-inline { margin-bottom: 12px; border-radius: 8px; border: 1px solid #ffd40055; }
+.field-error { color: #f4212e; font-size: 0.75rem; display: block; margin-top: 4px; }
+.toast {
+  background: #00ba7c33; color: #00ba7c; padding: 8px 12px; border-radius: 8px;
+  margin-bottom: 10px; font-size: 0.85rem;
+}
