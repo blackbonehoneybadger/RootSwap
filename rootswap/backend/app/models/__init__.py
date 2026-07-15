@@ -95,6 +95,8 @@ class Order(Base, TimestampMixin):
     __tablename__ = "orders"
     __table_args__ = (UniqueConstraint("idempotency_key", name="uq_orders_idempotency_key"),)
 
+    # idempotency_fingerprint added below — see column list
+
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
     quote_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("quotes.id"), index=True)
@@ -119,6 +121,7 @@ class Order(Base, TimestampMixin):
         Enum(QuoteSourceType, name="quote_source_type", create_type=False)
     )
     idempotency_key: Mapped[str] = mapped_column(String(128))
+    idempotency_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     wallet_address_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     wallet_address_masked: Mapped[str | None] = mapped_column(String(255), nullable=True)
     payout_details_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -138,15 +141,22 @@ class Order(Base, TimestampMixin):
     quote: Mapped["Quote"] = relationship(back_populates="orders")
     events: Mapped[list["OrderEvent"]] = relationship(back_populates="order")
     payment_instructions: Mapped["PaymentInstructions | None"] = relationship(
-        back_populates="order", foreign_keys="PaymentInstructions.order_id"
+        back_populates="order",
+        foreign_keys="PaymentInstructions.order_id",
+        uselist=False,
     )
 
 
 class PaymentInstructions(Base):
     __tablename__ = "payment_instructions"
+    __table_args__ = (
+        UniqueConstraint("order_id", name="uq_payment_instructions_order_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("orders.id"), index=True)
+    order_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orders.id"), nullable=False, index=True
+    )
     partner_order_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     payment_method: Mapped[str] = mapped_column(String(64))
     bank_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
