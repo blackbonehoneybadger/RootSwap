@@ -10,6 +10,10 @@ TEST_BOT_TOKEN = "1234567:test-bot-token-for-hmac"
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", TEST_BOT_TOKEN)
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-which-is-long-enough-000")
+os.environ.setdefault(
+    "ENCRYPTION_KEY",
+    "iYKWBnhWXfX5fiVcSWbBKwJMNKpvAS5lV8ykBonQksc=",
+)
 os.environ.setdefault("PARTNER_WEBHOOK_SECRET", "test-webhook-secret-which-is-long-enough")
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("POLLING_ENABLED", "false")

@@ -7,6 +7,7 @@
 - ledger and referral accrual happen only on COMPLETED (webhook/polling layer)
 """
 
+import hashlib
 import json
 import logging
 from datetime import timedelta
@@ -19,6 +20,7 @@ from app.core.config import get_settings
 from app.core.enums import ActorType, OrderDirection, OrderStatus, QuoteSourceType
 from app.core.errors import (
     ForbiddenError,
+    IdempotencyConflictError,
     InvalidTransitionError,
     NotFoundError,
     PartnerUnavailableError,
@@ -49,6 +51,24 @@ from app.services.wallet_validation import validate_wallet_address
 logger = logging.getLogger(__name__)
 
 
+def _idempotency_fingerprint(
+    quote_id: str,
+    wallet_address: str | None,
+    payout_details: dict | None,
+    payment_method: str | None,
+    bank: str | None,
+) -> str:
+    payload = {
+        "quote_id": quote_id,
+        "wallet_address": (wallet_address or "").strip(),
+        "payout_details": payout_details or {},
+        "payment_method": payment_method or "",
+        "bank": bank or "",
+    }
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(raw.encode()).hexdigest()[:64]
+
+
 async def create_order(
     session: AsyncSession,
     user_id: str,
@@ -65,7 +85,11 @@ async def create_order(
     if not idempotency_key or len(idempotency_key) > 64:
         raise ValidationFailedError("idempotency_key is required (max 64 chars)")
 
-    # idempotent replay: same user + key -> same order
+    fingerprint = _idempotency_fingerprint(
+        quote_id, wallet_address, payout_details, payment_method, bank
+    )
+
+    # idempotent replay: same user + key + fingerprint -> same order
     existing = (
         await session.execute(
             select(Order).where(
@@ -74,6 +98,10 @@ async def create_order(
         )
     ).scalar_one_or_none()
     if existing is not None:
+        if existing.idempotency_fingerprint and existing.idempotency_fingerprint != fingerprint:
+            raise IdempotencyConflictError(
+                "idempotency key reused with a different payload"
+            )
         return existing
 
     quote = (
@@ -131,6 +159,7 @@ async def create_order(
         total_fee=quote.total_fee,
         quote_source_type=quote.quote_source_type,
         idempotency_key=idempotency_key,
+        idempotency_fingerprint=fingerprint,
     )
     if wallet_address:
         order.wallet_address_encrypted = encrypt_value(wallet_address)
