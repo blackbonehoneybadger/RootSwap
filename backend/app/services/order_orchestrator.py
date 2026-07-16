@@ -44,6 +44,7 @@ from app.security.masking import (
     mask_wallet,
 )
 from app.services import emergency_stop
+from app.services.audit import write_audit
 from app.services.order_side_effects import apply_status_side_effects
 from app.services.state_machine import transition
 from app.services.wallet_validation import validate_wallet_address
@@ -171,6 +172,9 @@ async def create_order(
     try:
         await session.flush()
     except IntegrityError:
+        # A concurrent request won the (user_id, idempotency_key) or (quote_id)
+        # unique constraint. Roll back, then reconcile against the winner —
+        # NEVER return an order that belongs to a different payload.
         await session.rollback()
         replay = (
             await session.execute(
@@ -180,7 +184,17 @@ async def create_order(
             )
         ).scalar_one_or_none()
         if replay is not None:
+            if (
+                replay.idempotency_fingerprint
+                and replay.idempotency_fingerprint != fingerprint
+            ):
+                metrics.inc("order_idempotency_conflict_total")
+                raise IdempotencyConflictError(
+                    "idempotency key reused with a different payload"
+                ) from None
             return replay
+        # No order for that key -> the conflict was the per-quote unique
+        # constraint: a different active order already holds this quote.
         raise QuoteConsumedError("an active order already exists for this quote") from None
 
     await transition(session, order, OrderStatus.QUOTE_CONFIRMED, ActorType.USER, user_id)
@@ -209,19 +223,33 @@ async def create_order(
         metrics.inc("order_partner_create_failed_total", partner=quote.partner_code)
         raise PartnerUnavailableError("partner failed to create order, please retry") from exc
 
-    order.partner_order_id = result.partner_order_id
+    # The external partner order now exists. Any failure past this point would
+    # orphan it, so wrap all remaining local persistence in a compensation
+    # (saga) boundary: on error, roll back locally, best-effort cancel the
+    # remote order, record an audit trail + metric, and surface the error —
+    # never return a "successful" order backed by an orphaned remote order.
+    partner_order_id = result.partner_order_id
+    try:
+        order.partner_order_id = partner_order_id
 
-    if result.payment_instructions:
-        instructions = _build_payment_instructions(order, result.payment_instructions)
-        session.add(instructions)
-        await session.flush()
-        order.payment_instructions_id = instructions.id
-    if result.deposit_address:
-        order.wallet_address_encrypted = encrypt_value(result.deposit_address)
-        order.wallet_address_masked = mask_wallet(result.deposit_address)
+        if result.payment_instructions:
+            instructions = _build_payment_instructions(order, result.payment_instructions)
+            session.add(instructions)
+            await session.flush()
+            order.payment_instructions_id = instructions.id
+        if result.deposit_address:
+            order.wallet_address_encrypted = encrypt_value(result.deposit_address)
+            order.wallet_address_masked = mask_wallet(result.deposit_address)
 
-    await transition(session, order, OrderStatus.AWAITING_PAYMENT, ActorType.SYSTEM)
-    await session.commit()
+        await transition(session, order, OrderStatus.AWAITING_PAYMENT, ActorType.SYSTEM)
+        await session.commit()
+    except Exception as exc:
+        await _compensate_remote_order(
+            session, adapter, quote.partner_code, partner_order_id, exc
+        )
+        raise PartnerUnavailableError(
+            "order could not be finalized; the reservation was cancelled, please retry"
+        ) from exc
     metrics.inc("orders_created_total", direction=direction.value)
     logger.info(
         "order created",
@@ -235,6 +263,59 @@ async def create_order(
         },
     )
     return order
+
+
+async def _compensate_remote_order(
+    session: AsyncSession,
+    adapter,
+    partner_code: str,
+    partner_order_id: str,
+    error: Exception,
+) -> None:
+    """Best-effort saga compensation for an orphaned remote partner order.
+
+    Called when the remote order was created but local persistence failed. Rolls
+    back the local transaction, cancels the remote order best-effort, and records
+    a safe audit trail + metric. If the cancel itself fails, a distinct metric
+    fires and a recovery AuditLog is written so a future retry worker (TODO:
+    durable partner_compensation_tasks queue) can reconcile it. No sensitive data
+    is logged (only the exception class name). The original error is re-raised by
+    the caller.
+    """
+    safe_error = type(error).__name__  # class name only — never the message
+    await session.rollback()
+    metrics.inc("order_partner_compensation_total", partner=partner_code)
+    logger.error(
+        "compensating orphaned remote partner order",
+        extra={"ctx": {"partner": partner_code, "partner_order_id": partner_order_id}},
+    )
+    cancelled = False
+    try:
+        cancelled = await adapter.cancel_order(partner_order_id)
+    except PartnerError:
+        cancelled = False
+    if cancelled:
+        write_audit(
+            session,
+            action="order.partner_compensation.cancelled",
+            actor_role=ActorType.SYSTEM.value,
+            entity_type="partner_order",
+            entity_id=partner_order_id,
+            reason=safe_error,
+            metadata={"partner_code": partner_code},
+        )
+    else:
+        metrics.inc("order_partner_compensation_failed_total", partner=partner_code)
+        write_audit(
+            session,
+            action="order.partner_compensation.cancel_failed",
+            actor_role=ActorType.SYSTEM.value,
+            entity_type="partner_order",
+            entity_id=partner_order_id,
+            reason=f"remote order requires manual reconciliation: {safe_error}",
+            metadata={"partner_code": partner_code, "needs_recovery": True},
+        )
+    await session.commit()
 
 
 def _build_payment_instructions(order: Order, raw: dict) -> PaymentInstructions:
