@@ -66,6 +66,15 @@ jobs:
           alembic downgrade base
           alembic upgrade head
 
+      - name: Alembic migration scenarios (PostgreSQL, fail-closed guards)
+        env:
+          JWT_SECRET: test-jwt-secret-which-is-long-enough-000
+          ENCRYPTION_KEY: "test-encryption-key-32-bytes-long!!"
+          TELEGRAM_BOT_TOKEN: "1234567:test-bot-token-for-hmac"
+          PARTNER_WEBHOOK_SECRET: test-webhook-secret-which-is-long-enough
+          PG_ADMIN_DSN: postgresql://rootswap:rootswap@localhost:5432/rootswap_test
+        run: python -m tests.postgres_migrations
+
       - name: Real PostgreSQL idempotency race + saga concurrency
         env:
           JWT_SECRET: test-jwt-secret-which-is-long-enough-000
