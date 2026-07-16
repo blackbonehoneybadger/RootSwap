@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.health import router as health_router
 from app.api.v1.admin import router as admin_router
+from app.api.v1.assets import router as assets_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.orders import router as orders_router
 from app.api.v1.quotes import router as quotes_router
@@ -114,6 +115,7 @@ def create_app() -> FastAPI:
     prefix = settings.api_v1_prefix
     app.include_router(health_router)
     app.include_router(auth_router, prefix=prefix)
+    app.include_router(assets_router, prefix=prefix)
     app.include_router(quotes_router, prefix=prefix)
     app.include_router(orders_router, prefix=prefix)
     app.include_router(referral_router, prefix=prefix)

@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { createOrder, fetchQuotes, uuidv4 } from '../lib/api'
 import {
   BANKS,
   PAYMENT_METHODS,
   bankLabel,
+  isPositiveDecimalString,
   paymentMethodLabel,
   routesFor,
 } from '../lib/routes'
+import { useLocale } from '../lib/locale'
 import type {
   Direction,
   Order,
@@ -45,10 +47,13 @@ export function Wizard({
   onClose,
   onOrderCreated,
 }: WizardProps) {
+  const { t } = useLocale()
   const [direction, setDirection] = useState<Direction>(
     prefill?.direction ?? initialDirection,
   )
   const routes = routesFor(direction)
+  const idempotencyKeyRef = useRef(uuidv4())
+  const submittingRef = useRef(false)
   const prefillRouteIdx = prefill
     ? Math.max(
         0,
@@ -76,16 +81,16 @@ export function Wizard({
 
   const route = routes[routeIdx] ?? routes[0]
 
-  const amountValid = useMemo(() => {
-    const v = amount.trim()
-    return /^\d+(\.\d+)?$/.test(v) && parseFloat(v) > 0
-  }, [amount])
+  const amountValid = useMemo(() => isPositiveDecimalString(amount), [amount])
 
   const walletValid = walletAddress.trim().length > 10
   const payoutValid = payoutAccount.trim().length > 5
+  const routeEnabled = route?.enabled !== false
 
   const detailsValid =
-    amountValid && (direction === 'BUY' ? walletValid : payoutValid)
+    amountValid &&
+    routeEnabled &&
+    (direction === 'BUY' ? walletValid : payoutValid)
 
   if (!route) return null
 
@@ -117,8 +122,16 @@ export function Wizard({
   }
 
   const loadQuotes = async () => {
+    if (!routeEnabled) {
+      setError(t('comingSoon'))
+      return
+    }
+    if (selectedQuote?.expires_at && Date.parse(selectedQuote.expires_at) < Date.now()) {
+      setError(t('quoteExpired'))
+    }
     setLoading(true)
     setError(null)
+    idempotencyKeyRef.current = uuidv4()
     try {
       const res = await fetchQuotes(buildQuoteRequest())
       setQuotes(res.quotes)
@@ -132,13 +145,18 @@ export function Wizard({
   }
 
   const submitOrder = async () => {
-    if (!selectedQuote) return
+    if (!selectedQuote || submittingRef.current || loading) return
+    if (selectedQuote.expires_at && Date.parse(selectedQuote.expires_at) < Date.now()) {
+      setError(t('quoteExpired'))
+      return
+    }
+    submittingRef.current = true
     setLoading(true)
     setError(null)
     try {
       const order = await createOrder({
         quote_id: selectedQuote.quote_id,
-        idempotency_key: uuidv4(),
+        idempotency_key: idempotencyKeyRef.current,
         wallet_address: direction === 'BUY' ? walletAddress.trim() : null,
         payout_details:
           direction === 'SELL'
@@ -157,6 +175,7 @@ export function Wizard({
       hapticError()
       setError(e instanceof Error ? e.message : 'Не удалось создать ордер')
     } finally {
+      submittingRef.current = false
       setLoading(false)
     }
   }
@@ -233,9 +252,14 @@ export function Wizard({
                 key={`${r.asset}-${r.network ?? ''}`}
                 type="button"
                 className={`card route-item ${i === routeIdx ? 'route-item-active' : ''}`}
-                onClick={() => setRouteIdx(i)}
+                disabled={!r.enabled}
+                onClick={() => r.enabled && setRouteIdx(i)}
               >
-                <span className="route-label">{r.label}</span>
+                <span className="route-label">
+                  {r.label}
+                  {r.status === 'planned' ? ` · ${t('comingSoon')}` : ''}
+                  {r.status === 'sandbox' ? ` · ${t('sandbox')}` : ''}
+                </span>
                 <span className="muted">
                   {direction === 'BUY' ? `RUB → ${r.asset}` : `${r.asset} → RUB`}
                 </span>
@@ -246,6 +270,7 @@ export function Wizard({
           <button
             type="button"
             className="btn btn-primary"
+            disabled={!routeEnabled}
             onClick={() => setStep('details')}
           >
             Далее
@@ -505,6 +530,17 @@ export function Wizard({
                 <span>Партнёр может запросить верификацию</span>
               </div>
             )}
+            {direction === 'BUY' && (
+              <div className="confirm-row">
+                <span className="muted">{t('wallet')}</span>
+                <span>
+                  {walletAddress.slice(0, 8)}…{walletAddress.slice(-6)}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="card notice-card">
+            <p className="notice-text">{t('wrongNetwork')}</p>
           </div>
 
           {direction === 'BUY' ? (

@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.assets import validate_route
 from app.core.config import get_settings
 from app.core.enums import CircuitBreakerState, OrderDirection, QuoteSourceType
 from app.core.errors import PartnerUnavailableError, ValidationFailedError
@@ -78,6 +79,7 @@ async def create_quotes(
     settings = get_settings()
     if amount_in <= 0:
         raise ValidationFailedError("amount_in must be positive")
+    validate_route(direction, from_asset, from_network, to_asset, to_network, amount_in)
 
     route = Route(direction, from_asset.upper(), from_network, to_asset.upper(), to_network)
     allowed_sources = allowed_source_types()
