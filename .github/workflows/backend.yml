@@ -54,7 +54,14 @@ jobs:
       - name: Alembic migration from empty database (PostgreSQL)
         env:
           DATABASE_URL: postgresql+asyncpg://rootswap:rootswap@localhost:5432/rootswap_test
+          JWT_SECRET: test-jwt-secret-which-is-long-enough-000
+          ENCRYPTION_KEY: "test-encryption-key-32-bytes-long!!"
+          TELEGRAM_BOT_TOKEN: "1234567:test-bot-token-for-hmac"
+          PARTNER_WEBHOOK_SECRET: test-webhook-secret-which-is-long-enough
         run: |
+          heads=$(alembic heads)
+          echo "$heads"
+          test "$(echo "$heads" | wc -l)" -eq 1
           alembic upgrade head
           alembic downgrade base
           alembic upgrade head
@@ -62,6 +69,7 @@ jobs:
       - name: Tests (unit + integration + e2e, with live Redis)
         env:
           REDIS_URL: redis://localhost:6379/0
+          POSTGRES_TEST_DATABASE_URL: postgresql+asyncpg://rootswap:rootswap@localhost:5432/rootswap_test
         run: pytest -q
 
       - name: E2E mock flows (explicit)

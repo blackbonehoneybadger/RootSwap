@@ -42,7 +42,9 @@ RootSwap **никогда** не запрашивает seed-фразы или �
 
 ## Быстрый старт (dev)
 
-> **Важно:** актуальный код — в ветке **`main`**. Ветка `cursor/rootswap-initial-e6c2` устарела (только README + ранний scaffold). Подробнее: [deploy/README.md](deploy/README.md).
+> **Важно:** канонический код — в корне репозитория (`backend/`, `mini-app/`, `bot/`, `deploy/`).
+> Не используйте параллельную папку `rootswap/` из устаревших Cursor PR (#7/#8).
+> Документация: [docs/TELEGRAM_SETUP.md](docs/TELEGRAM_SETUP.md), [docs/PARTNER_ADAPTERS.md](docs/PARTNER_ADAPTERS.md), [docs/integrations/bestchange.md](docs/integrations/bestchange.md).
 
 ### Backend
 
