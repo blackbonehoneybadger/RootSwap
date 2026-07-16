@@ -100,9 +100,17 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
-        allow_credentials=False,
+        # Credentials required so the browser sends/stores the refresh cookie.
+        # The CORS spec forbids credentials with a wildcard origin, so the
+        # explicit origin list above is mandatory (never "*").
+        allow_credentials=True,
         allow_methods=["GET", "POST", "DELETE"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-Id"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Request-Id",
+            "X-CSRF-Token",
+        ],
     )
 
     @app.exception_handler(DomainError)

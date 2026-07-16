@@ -18,6 +18,9 @@ os.environ.setdefault("PARTNER_WEBHOOK_SECRET", "test-webhook-secret-which-is-lo
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("POLLING_ENABLED", "false")
 os.environ.setdefault("NOTIFICATIONS_ENABLED", "false")
+# ASGI test client speaks http://; Secure cookies would never round-trip.
+os.environ.setdefault("COOKIE_SECURE", "false")
+os.environ.setdefault("COOKIE_SAMESITE", "lax")
 
 import pytest
 import pytest_asyncio
