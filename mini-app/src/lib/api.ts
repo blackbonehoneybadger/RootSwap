@@ -2,8 +2,11 @@
  * API client for the RootSwap backend.
  * - Base URL from VITE_API_BASE_URL (default "/api/v1").
  * - Auth via POST /auth/telegram with the raw Telegram initData string.
- * - Access token is kept in memory only (never in localStorage).
- * - 401 responses trigger a single re-authentication + retry.
+ * - Access token is kept in memory ONLY (never in localStorage/sessionStorage).
+ * - The refresh token lives in an HttpOnly cookie the server sets; JS never
+ *   reads it. A readable CSRF token accompanies it for the double-submit guard.
+ * - On 401 the client first tries a silent cookie refresh (rotating the token);
+ *   only if that fails does it fall back to a full initData re-authentication.
  */
 
 import { getInitData, getStartParam } from './telegram'
@@ -33,6 +36,8 @@ export class ApiError extends Error {
 /** In-memory only — intentionally not persisted. */
 let accessToken: string | null = null
 let currentUser: AuthUser | null = null
+/** Double-submit CSRF token, held in memory for /auth/refresh and /auth/logout. */
+let csrfToken: string | null = null
 let authPromise: Promise<AuthUser> | null = null
 
 async function readErrorMessage(res: Response): Promise<string> {
@@ -67,6 +72,8 @@ async function doAuthenticate(): Promise<AuthUser> {
   }
   const res = await fetch(`${BASE_URL}/auth/telegram`, {
     method: 'POST',
+    // credentials so the browser stores the Set-Cookie refresh + csrf cookies
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       init_data: initData,
@@ -79,6 +86,7 @@ async function doAuthenticate(): Promise<AuthUser> {
   const data = (await res.json()) as AuthResponse
   accessToken = data.access_token
   currentUser = data.user
+  csrfToken = data.csrf_token ?? null
   return data.user
 }
 
@@ -90,6 +98,54 @@ export function authenticate(): Promise<AuthUser> {
     })
   }
   return authPromise
+}
+
+/**
+ * Silent refresh: rotate the refresh cookie and mint a new access token without
+ * re-reading initData. Returns true on success. Never throws.
+ */
+async function tryRefresh(): Promise<boolean> {
+  if (!csrfToken) return false
+  try {
+    const res = await fetch(`${BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+      },
+    })
+    if (!res.ok) return false
+    const data = (await res.json()) as AuthResponse
+    accessToken = data.access_token
+    currentUser = data.user
+    csrfToken = data.csrf_token ?? csrfToken
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Revoke the server-side session and clear in-memory auth state. */
+export async function logout(): Promise<void> {
+  try {
+    if (csrfToken) {
+      await fetch(`${BASE_URL}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
+      })
+    }
+  } catch {
+    /* best-effort */
+  } finally {
+    accessToken = null
+    currentUser = null
+    csrfToken = null
+  }
 }
 
 export function getCurrentUser(): AuthUser | null {
@@ -113,9 +169,13 @@ async function request<T>(
     },
   })
   if (res.status === 401 && allowRetry) {
-    // token expired or invalid: re-authenticate once and retry
+    // Access token expired: try a silent cookie refresh first (cheap, keeps the
+    // session), and only fall back to a full initData re-auth if that fails.
     accessToken = null
-    await authenticate()
+    const refreshed = await tryRefresh()
+    if (!refreshed) {
+      await authenticate()
+    }
     return request<T>(path, options, false)
   }
   if (!res.ok) {
