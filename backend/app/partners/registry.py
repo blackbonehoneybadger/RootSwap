@@ -7,6 +7,7 @@ stats) lives in the `partners` table and is synced via `sync_partner_rows`.
 from datetime import datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import CircuitBreakerState, QuoteSourceType
@@ -71,20 +72,34 @@ class PartnerRegistry:
         ]
 
     async def sync_partner_rows(self, session: AsyncSession) -> None:
-        """Ensure a partners row exists for every registered adapter."""
+        """Ensure a partners row exists for every registered adapter.
+
+        Concurrency-safe: multiple processes may run this at once during startup
+        (e.g. ``uvicorn --workers N``). Each insert runs inside its own SAVEPOINT,
+        and a duplicate ``partners.code`` from a racing worker is caught and
+        ignored instead of aborting the whole transaction (which previously
+        crashed worker startup with a UniqueViolationError). Dialect-agnostic —
+        SAVEPOINT works on both PostgreSQL and SQLite.
+        """
         rows = await self.get_partner_rows(session)
         for adapter in self._adapters.values():
-            if adapter.code not in rows:
-                session.add(
-                    Partner(
-                        code=adapter.code,
-                        name=adapter.name,
-                        adapter_type=adapter.adapter_type,
-                        enabled=True,
-                        quote_source_type=adapter.quote_source_type,
-                        environment=adapter.environment,
+            if adapter.code in rows:
+                continue
+            try:
+                async with session.begin_nested():
+                    session.add(
+                        Partner(
+                            code=adapter.code,
+                            name=adapter.name,
+                            adapter_type=adapter.adapter_type,
+                            enabled=True,
+                            quote_source_type=adapter.quote_source_type,
+                            environment=adapter.environment,
+                        )
                     )
-                )
+            except IntegrityError:
+                # a concurrent worker inserted this partner first — expected race
+                pass
         await session.commit()
 
     async def enable_partner(self, session: AsyncSession, code: str) -> Partner | None:
