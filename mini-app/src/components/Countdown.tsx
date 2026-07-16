@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { fmtCountdown, secondsUntil } from '../lib/format'
+import { useLocale } from '../lib/locale'
 
 interface CountdownProps {
   expiresAt: string
@@ -9,6 +10,7 @@ interface CountdownProps {
 
 /** Live mm:ss countdown to an ISO timestamp. */
 export function Countdown({ expiresAt, prefix, onExpire }: CountdownProps) {
+  const { t } = useLocale()
   const [seconds, setSeconds] = useState(() => secondsUntil(expiresAt))
   const firedRef = useRef(false)
 
@@ -32,7 +34,7 @@ export function Countdown({ expiresAt, prefix, onExpire }: CountdownProps) {
   return (
     <span className={`countdown ${expired ? 'countdown-expired' : ''}`}>
       {prefix ? `${prefix} ` : ''}
-      {expired ? 'истекло' : fmtCountdown(seconds)}
+      {expired ? t('expiredShort') : fmtCountdown(seconds)}
     </span>
   )
 }

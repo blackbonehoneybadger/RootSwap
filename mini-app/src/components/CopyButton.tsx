@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useLocale } from '../lib/locale'
 
 interface CopyButtonProps {
   value: string
@@ -7,6 +8,7 @@ interface CopyButtonProps {
 
 /** Copies a value to the clipboard with brief visual feedback. */
 export function CopyButton({ value, small = false }: CopyButtonProps) {
+  const { t } = useLocale()
   const [copied, setCopied] = useState(false)
   const timerRef = useRef<number | null>(null)
 
@@ -44,9 +46,9 @@ export function CopyButton({ value, small = false }: CopyButtonProps) {
       type="button"
       className={`copy-btn ${small ? 'copy-btn-small' : ''}`}
       onClick={copy}
-      aria-label="Скопировать"
+      aria-label={t('copyAria')}
     >
-      {copied ? '✓ Скопировано' : 'Копировать'}
+      {copied ? t('copied') : t('copy')}
     </button>
   )
 }

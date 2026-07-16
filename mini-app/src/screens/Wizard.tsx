@@ -401,7 +401,7 @@ export function Wizard({
                   <div className="quote-badges">
                     {q.labels.map((l) => (
                       <span key={l} className={`badge badge-label badge-label-${l}`}>
-                        {quoteLabelText(l)}
+                        {quoteLabelText(locale, l)}
                       </span>
                     ))}
                     {q.kyc_required && (
