@@ -1,6 +1,9 @@
 /**
- * Minimal RU/EN i18n. Telegram language_code is the default; manual override
- * persists in localStorage and must NEVER re-trigger Telegram auth.
+ * RU/EN i18n. Telegram language_code is the default; a manual override persists
+ * in localStorage and must NEVER re-trigger Telegram auth.
+ *
+ * `t(locale, key, params?)` supports `{name}` interpolation so templated
+ * strings (amounts, asset names) stay a single translatable unit per language.
  */
 
 export type Locale = 'ru' | 'en'
@@ -38,7 +41,7 @@ const dict = {
     amount: 'Сумма',
     network: 'Сеть',
     wallet: 'Адрес получения',
-    getQuotes: 'Получить предложения',
+    getQuotes: 'Получить котировки',
     confirm: 'Подтвердить',
     createOrder: 'Создать заявку',
     cancel: 'Отмена',
@@ -46,6 +49,74 @@ const dict = {
       'Отправка на неверный адрес или в другую сеть может привести к безвозвратной потере средств.',
     quoteExpired: 'Котировка истекла. Получите новую.',
     back: 'Назад',
+
+    // Wizard chrome
+    wizardBuyTitle: 'Покупка криптовалюты',
+    wizardSellTitle: 'Продажа криптовалюты',
+    wizardDetailsTitle: 'Детали обмена',
+    wizardQuotesTitle: 'Выбор предложения',
+    wizardConfirmTitle: 'Подтверждение',
+    buyShort: 'Купить',
+    sellShort: 'Продать',
+    next: 'Далее',
+    choose: 'Выбрать',
+    demoModeInline: 'DEMO-режим — без реальных денег',
+    payRubGet: 'Вы платите RUB и получаете:',
+    sendCryptoGetRub: 'Вы отправляете криптовалюту и получаете RUB:',
+    amountInRub: 'Сумма в RUB',
+    amountInAsset: 'Сумма в {asset}',
+    egAmountBuy: 'например, 10000',
+    egAmountSell: 'например, 100',
+    enterPositive: 'Введите положительное число',
+    paymentMethod: 'Способ оплаты',
+    payoutMethod: 'Способ получения RUB',
+    bank: 'Банк',
+    walletForAsset: 'Адрес кошелька для получения {asset}',
+    addressInNetwork: 'Адрес в сети {network}',
+    addressTooShort: 'Адрес выглядит слишком коротким (мин. 11 символов)',
+    checkAddressNetwork: 'Внимательно проверьте адрес и сеть ({network}).',
+    phoneForSbp: 'Телефон для СБП',
+    cardNumber: 'Номер карты',
+    accountNumber: 'Номер счёта',
+    payoutPlaceholder: 'Реквизиты для выплаты RUB',
+    detailsTooShort: 'Реквизиты слишком короткие',
+    searchingOffers: 'Ищем предложения…',
+    failedQuotes: 'Не удалось получить котировки',
+    failedOrder: 'Не удалось создать ордер',
+    noOffers: 'Нет доступных предложений. Попробуйте изменить сумму.',
+    youReceiveColon: 'Вы получите:',
+    rate: 'Курс',
+    minutesShort: 'мин',
+    rootScore: 'RootScore',
+    feesSummary: 'Комиссии: {total} всего',
+    feeService: 'Сервис',
+    feePartner: 'Партнёр',
+    feeNetwork: 'Сеть',
+    feeTotal: 'Итого',
+    validFor: 'Действует:',
+    updating: 'Обновляем…',
+    refreshQuotes: 'Обновить котировки',
+    directionLabel: 'Направление',
+    purchase: 'Покупка',
+    sale: 'Продажа',
+    asset: 'Актив',
+    youGive: 'Вы отдаёте',
+    youReceive: 'Вы получите',
+    partner: 'Партнёр',
+    serviceFee: 'Комиссия сервиса',
+    partnerFee: 'Комиссия партнёра',
+    networkFee: 'Комиссия сети',
+    totalFee: 'Комиссия итого',
+    quoteSource: 'Источник котировки',
+    kycMayRequire: 'Партнёр может запросить верификацию',
+    receivingAddressFor: 'Адрес получения ({asset})',
+    payoutRequisites: 'Реквизиты для выплаты RUB',
+    method: 'Способ',
+    quoteValidFor: 'Котировка действует:',
+    confirmedAddress: 'Я проверил адрес и сеть',
+    understandDemo: 'Я понимаю, что это DEMO-режим без реальных денег',
+    creatingOrder: 'Создаём ордер…',
+    confirmExchange: 'Подтвердить обмен',
   },
   en: {
     brand: 'RootSwap',
@@ -85,10 +156,82 @@ const dict = {
       'Sending to the wrong address or network may result in irreversible loss of funds.',
     quoteExpired: 'Quote expired. Get a new one.',
     back: 'Back',
+
+    // Wizard chrome
+    wizardBuyTitle: 'Buy crypto',
+    wizardSellTitle: 'Sell crypto',
+    wizardDetailsTitle: 'Exchange details',
+    wizardQuotesTitle: 'Choose an offer',
+    wizardConfirmTitle: 'Confirmation',
+    buyShort: 'Buy',
+    sellShort: 'Sell',
+    next: 'Next',
+    choose: 'Choose',
+    demoModeInline: 'DEMO mode — no real money',
+    payRubGet: 'You pay RUB and receive:',
+    sendCryptoGetRub: 'You send crypto and receive RUB:',
+    amountInRub: 'Amount in RUB',
+    amountInAsset: 'Amount in {asset}',
+    egAmountBuy: 'e.g. 10000',
+    egAmountSell: 'e.g. 100',
+    enterPositive: 'Enter a positive number',
+    paymentMethod: 'Payment method',
+    payoutMethod: 'How to receive RUB',
+    bank: 'Bank',
+    walletForAsset: 'Receiving wallet address for {asset}',
+    addressInNetwork: 'Address on the {network} network',
+    addressTooShort: 'Address looks too short (min. 11 characters)',
+    checkAddressNetwork: 'Double-check the address and network ({network}).',
+    phoneForSbp: 'Phone for SBP',
+    cardNumber: 'Card number',
+    accountNumber: 'Account number',
+    payoutPlaceholder: 'RUB payout details',
+    detailsTooShort: 'Details are too short',
+    searchingOffers: 'Searching offers…',
+    failedQuotes: 'Failed to fetch quotes',
+    failedOrder: 'Failed to create order',
+    noOffers: 'No offers available. Try changing the amount.',
+    youReceiveColon: 'You receive:',
+    rate: 'Rate',
+    minutesShort: 'min',
+    rootScore: 'RootScore',
+    feesSummary: 'Fees: {total} total',
+    feeService: 'Service',
+    feePartner: 'Partner',
+    feeNetwork: 'Network',
+    feeTotal: 'Total',
+    validFor: 'Valid for:',
+    updating: 'Updating…',
+    refreshQuotes: 'Refresh quotes',
+    directionLabel: 'Direction',
+    purchase: 'Buy',
+    sale: 'Sell',
+    asset: 'Asset',
+    youGive: 'You give',
+    youReceive: 'You receive',
+    partner: 'Partner',
+    serviceFee: 'Service fee',
+    partnerFee: 'Partner fee',
+    networkFee: 'Network fee',
+    totalFee: 'Total fee',
+    quoteSource: 'Quote source',
+    kycMayRequire: 'The partner may request verification',
+    receivingAddressFor: 'Receiving address ({asset})',
+    payoutRequisites: 'RUB payout details',
+    method: 'Method',
+    quoteValidFor: 'Quote valid for:',
+    confirmedAddress: 'I have verified the address and network',
+    understandDemo: 'I understand this is DEMO mode with no real money',
+    creatingOrder: 'Creating order…',
+    confirmExchange: 'Confirm exchange',
   },
 } as const
 
 export type MsgKey = keyof typeof dict.ru
+export type TParams = Record<string, string | number>
+
+/** Exposed for tests: assert RU/EN key parity and completeness. */
+export const messages = dict
 
 export function detectLocale(telegramLang?: string): Locale {
   try {
@@ -109,6 +252,14 @@ export function persistLocale(locale: Locale): void {
   }
 }
 
-export function t(locale: Locale, key: MsgKey): string {
-  return dict[locale][key] || dict.ru[key]
+function interpolate(template: string, params?: TParams): string {
+  if (!params) return template
+  return template.replace(/\{(\w+)\}/g, (_m, name: string) =>
+    name in params ? String(params[name]) : `{${name}}`,
+  )
+}
+
+export function t(locale: Locale, key: MsgKey, params?: TParams): string {
+  const template = dict[locale][key] || dict.ru[key]
+  return interpolate(template, params)
 }

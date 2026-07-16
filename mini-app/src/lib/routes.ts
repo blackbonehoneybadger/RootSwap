@@ -1,3 +1,4 @@
+import type { Locale } from './i18n'
 import type { Direction, PaymentMethod } from './types'
 
 export type AssetStatus = 'sandbox' | 'planned' | 'disabled' | 'real'
@@ -43,34 +44,60 @@ export function routesFor(direction: Direction): RouteOption[] {
   return direction === 'BUY' ? BUY_ROUTES : SELL_ROUTES
 }
 
+/**
+ * Payment methods and banks use STABLE internal codes as their wire value; only
+ * the display label is localized. The code is what the backend stores; changing
+ * a translation never changes a stored order.
+ */
 export interface PaymentMethodOption {
   value: PaymentMethod
-  label: string
 }
 
 export const PAYMENT_METHODS: PaymentMethodOption[] = [
-  { value: 'SBP', label: 'СБП' },
-  { value: 'bank_transfer', label: 'Банковский перевод' },
-  { value: 'card_transfer', label: 'Перевод на карту' },
+  { value: 'SBP' },
+  { value: 'bank_transfer' },
+  { value: 'card_transfer' },
 ]
 
+const PAYMENT_METHOD_LABELS: Record<Locale, Record<string, string>> = {
+  ru: {
+    SBP: 'СБП',
+    bank_transfer: 'Банковский перевод',
+    card_transfer: 'Перевод на карту',
+  },
+  en: {
+    SBP: 'SBP (Faster Payments)',
+    bank_transfer: 'Bank transfer',
+    card_transfer: 'Card transfer',
+  },
+}
+
+/** Stable bank codes (wire values). */
 export const BANKS: string[] = ['Sber', 'Tinkoff', 'Alfa', 'Raiffeisen', 'AnyBank']
 
-export const BANK_LABELS: Record<string, string> = {
-  Sber: 'Сбер',
-  Tinkoff: 'Т-Банк (Тинькофф)',
-  Alfa: 'Альфа-Банк',
-  Raiffeisen: 'Райффайзен',
-  AnyBank: 'Любой банк',
+const BANK_LABELS: Record<Locale, Record<string, string>> = {
+  ru: {
+    Sber: 'Сбер',
+    Tinkoff: 'Т-Банк (Тинькофф)',
+    Alfa: 'Альфа-Банк',
+    Raiffeisen: 'Райффайзен',
+    AnyBank: 'Любой банк',
+  },
+  en: {
+    Sber: 'Sber',
+    Tinkoff: 'T-Bank (Tinkoff)',
+    Alfa: 'Alfa-Bank',
+    Raiffeisen: 'Raiffeisen',
+    AnyBank: 'Any bank',
+  },
 }
 
-export function bankLabel(bank: string): string {
-  return BANK_LABELS[bank] ?? bank
+export function bankLabel(locale: Locale, bank: string): string {
+  return BANK_LABELS[locale][bank] ?? bank
 }
 
-export function paymentMethodLabel(method: string): string {
-  const found = PAYMENT_METHODS.find((m) => m.value === method)
-  return found ? found.label : method
+export function paymentMethodLabel(locale: Locale, method: string): string {
+  return PAYMENT_METHOD_LABELS[locale][method] ?? method
 }
 
 /** Positive decimal string without float conversion. */

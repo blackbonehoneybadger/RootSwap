@@ -12,12 +12,13 @@ import {
   t,
   type Locale,
   type MsgKey,
+  type TParams,
 } from './i18n'
 
 export interface LocaleCtx {
   locale: Locale
   setLocale: (l: Locale) => void
-  t: (key: MsgKey) => string
+  t: (key: MsgKey, params?: TParams) => string
 }
 
 const LocaleContext = createContext<LocaleCtx | null>(null)
@@ -40,7 +41,7 @@ export function LocaleProvider({
     () => ({
       locale,
       setLocale,
-      t: (key: MsgKey) => t(locale, key),
+      t: (key: MsgKey, params?: TParams) => t(locale, key, params),
     }),
     [locale, setLocale],
   )
