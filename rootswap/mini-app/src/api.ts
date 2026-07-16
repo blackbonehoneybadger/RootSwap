@@ -135,11 +135,43 @@ export async function authDev(telegramId = 900001) {
   return data;
 }
 
+export async function fetchAssets() {
+  return request<{
+    assets: AssetInfo[];
+    routes: {
+      direction: string;
+      from_asset: string;
+      from_network: string | null;
+      to_asset: string;
+      to_network: string | null;
+    }[];
+    note?: string;
+  }>('/v1/assets');
+}
+
+export interface AssetInfo {
+  symbol: string;
+  name: string;
+  network: string | null;
+  decimals: number;
+  enabled: boolean;
+  min_amount: number;
+  max_amount: number;
+  status: string;
+  address_hint?: string;
+  memo_required?: boolean;
+  explorer_url?: string | null;
+  chain_id?: string | null;
+  icon?: string;
+}
+
 export async function createQuote(body: Record<string, unknown>) {
-  return request<{ best: Quote | null; fastest: Quote | null; lowest_fee: Quote | null; all: Quote[] }>(
-    '/v1/quotes',
-    { method: 'POST', body: JSON.stringify(body) },
-  );
+  return request<{
+    best: Quote | null;
+    fastest: Quote | null;
+    lowest_fee: Quote | null;
+    all: Quote[];
+  }>('/v1/quotes', { method: 'POST', body: JSON.stringify(body) });
 }
 
 export async function createOrder(body: Record<string, unknown>) {
