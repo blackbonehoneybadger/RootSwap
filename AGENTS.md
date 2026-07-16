@@ -82,16 +82,25 @@ export $(grep -v '^#' ../.env | xargs)   # or export vars manually
 PYTHONPATH=. ./.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-## Supported assets (MVP)
+## Supported assets (honest)
 
-| Symbol | Network | Status |
-|--------|---------|--------|
-| RUB | — | supported (fiat) |
-| USDT | TRC20 | supported |
-| BTC | BTC | supported |
-| XMR | XMR | supported (mock partners) |
-| USDT | ERC20 | planned / disabled |
-| SOL | SOL | planned / disabled |
+| Symbol | Network | Status | Notes |
+|--------|---------|--------|-------|
+| RUB | — | Sandbox | Fiat side of mock routes |
+| USDT | TRC20 | Sandbox only | Mock partner demo — **not real money** |
+| BTC | BTC | Sandbox only | Mock partner demo |
+| XMR | XMR | Sandbox only | Mock only — **do not claim Monero is live** |
+| ETH | ERC20 | Planned | Shown as «Скоро» |
+| USDT / USDC | ERC20, SOL, TON, BSC | Planned | Separate routes per network |
+| SOL | SOL | Planned | |
+| TON | TON | Planned | Memo when partner requires |
+| XRP | XRP | Planned | Destination tag required |
+| DOGE | DOGE | Planned | |
+| DASH | DASH | Planned | |
+| BNB | BSC | Planned | BNB Smart Chain (not Beacon) |
+
+Registry: `backend/app/core/assets.py`. Mini App Telegram module: `mini-app/src/lib/telegram.ts`.  
+Setup: `rootswap/docs/TELEGRAM_SETUP.md`, partners: `rootswap/docs/PARTNER_ADAPTERS.md`.
 
 ## Status transitions
 

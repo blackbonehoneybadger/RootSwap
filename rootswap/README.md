@@ -25,7 +25,9 @@ This first version implements a fully working mock/sandbox flow for:
 - Telegram Bot with Mini App button and referral `start=ref_CODE`
 - Mini App UI: buy/sell, quotes (RootScore), orders, history, referrals, profile
 - **Browser DEV auth** (`POST /api/v1/auth/dev`) when `ENABLE_DEV_ENDPOINTS=true` (forced off in production)
-- Explicit asset registry: RUB ↔ USDT TRC20 / BTC / XMR (SOL/ERC20 = planned)
+- Explicit asset registry with **Sandbox only** vs **Planned** statuses (see table below)
+- Official Telegram WebApp SDK (`telegram-web-app.js`) via `mini-app/src/lib/telegram.ts`
+- RU/EN i18n + legal placeholders; BotFather guide in `docs/TELEGRAM_SETUP.md`
 - Mock partner engine; MOCK/SANDBOX payment requisites revealed for demo
 - Quote engine with RootScore, parallel partner polling, circuit breaker
 - Order orchestrator with centralized state machine, DB idempotency + payload fingerprint, UNIQUE PI per order
@@ -35,10 +37,23 @@ This first version implements a fully working mock/sandbox flow for:
 - Production startup guards (weak secrets, DEV bot token, CORS `*`, MOCK quotes, ENABLE_DEV_ENDPOINTS)
 - Repo-root GitHub Actions CI (`.github/workflows/ci.yml`) with Postgres + Redis
 
+### Asset status table
+
+| Asset | Network | Status |
+|-------|---------|--------|
+| RUB | — | Sandbox (fiat) |
+| USDT | TRC20 | **Sandbox only** |
+| BTC | BTC | **Sandbox only** |
+| XMR | XMR | **Sandbox only** (no real Monero partner) |
+| ETH | ERC20 | Planned |
+| USDT / USDC | ERC20, SOL, TON, BSC | Planned |
+| SOL / TON / XRP / DOGE / DASH | native | Planned |
+| BNB | BSC | Planned (Smart Chain) |
+
 ### What Does NOT Work
 
 - Real money movement / REAL partners
-- Solana, ERC20 USDT, and other non-registry routes
+- Planned assets (ETH, TON, XRP, …) — quotes/orders rejected
 - Custodial wallet / seed phrases
 - KYC/AML bypass
 - Using DEV endpoints in production

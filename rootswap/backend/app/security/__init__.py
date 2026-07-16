@@ -227,9 +227,27 @@ ASSET_NETWORK_MAP = {
     ("XMR", "XMR"): "xmr",
     ("USDT", "TRC20"): "trc20",
     ("USDT", "ERC20"): "erc20",
+    ("USDT", "SOL"): "sol",
+    ("USDT", "TON"): "ton",
+    ("USDT", "BSC"): "bsc",
+    ("USDC", "ERC20"): "erc20",
+    ("USDC", "SOL"): "sol",
+    ("ETH", "ERC20"): "erc20",
+    ("SOL", "SOL"): "sol",
+    ("TON", "TON"): "ton",
+    ("XRP", "XRP"): "xrp",
+    ("DOGE", "DOGE"): "doge",
+    ("DASH", "DASH"): "dash",
+    ("BNB", "BSC"): "bsc",
     ("RUB", None): "fiat",
     ("RUB", ""): "fiat",
 }
+
+SOL_ADDRESS = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+TON_ADDRESS = re.compile(r"^(EQ|UQ|0:)[A-Za-z0-9_-]{46,}$")
+XRP_ADDRESS = re.compile(r"^r[1-9A-HJ-NP-Za-km-z]{24,34}$")
+DOGE_ADDRESS = re.compile(r"^D[5-9A-HJ-NP-U][1-9A-HJ-NP-Za-km-z]{32}$")
+DASH_ADDRESS = re.compile(r"^X[1-9A-HJ-NP-Za-km-z]{33}$")
 
 
 def validate_wallet_address(asset: str, network: str | None, address: str) -> None:
@@ -238,6 +256,9 @@ def validate_wallet_address(asset: str, network: str | None, address: str) -> No
     key = (asset, network)
     if key not in ASSET_NETWORK_MAP and (asset, None) not in ASSET_NETWORK_MAP:
         raise ValidationError(f"Incompatible asset/network: {asset}/{network}")
+
+    if not address or not address.strip():
+        raise ValidationError("Wallet address is required")
 
     if asset == "BTC" and network == "BTC":
         if not (BTC_BECH32.match(address) or BTC_LEGACY.match(address)):
@@ -248,9 +269,24 @@ def validate_wallet_address(asset: str, network: str | None, address: str) -> No
     elif asset == "USDT" and network == "TRC20":
         if not TRON_ADDRESS.match(address):
             raise ValidationError("Invalid USDT TRC20 address")
-    elif asset == "USDT" and network == "ERC20":
+    elif network in ("ERC20", "BSC") and asset in ("USDT", "USDC", "ETH", "BNB"):
         if not ERC20_ADDRESS.match(address):
-            raise ValidationError("Invalid USDT ERC20 address")
+            raise ValidationError(f"Invalid {asset} {network} address")
+    elif network == "SOL" and asset in ("USDT", "USDC", "SOL"):
+        if not SOL_ADDRESS.match(address):
+            raise ValidationError(f"Invalid {asset} Solana address")
+    elif network == "TON" and asset in ("TON", "USDT"):
+        if not TON_ADDRESS.match(address):
+            raise ValidationError(f"Invalid {asset} TON address")
+    elif asset == "XRP" and network == "XRP":
+        if not XRP_ADDRESS.match(address):
+            raise ValidationError("Invalid XRP address")
+    elif asset == "DOGE" and network == "DOGE":
+        if not DOGE_ADDRESS.match(address):
+            raise ValidationError("Invalid DOGE address")
+    elif asset == "DASH" and network == "DASH":
+        if not DASH_ADDRESS.match(address):
+            raise ValidationError("Invalid DASH address")
     elif asset == "RUB":
         return
     else:
