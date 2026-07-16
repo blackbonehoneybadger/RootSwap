@@ -140,6 +140,10 @@ class Settings(BaseSettings):
             problems.append("ALLOW_SANDBOX_PARTNERS must be false in production")
         if self.debug:
             problems.append("DEBUG must be disabled in production")
+        if not self.cookie_secure:
+            problems.append("COOKIE_SECURE must be true in production")
+        if self.cookie_samesite.lower() not in {"none", "lax", "strict"}:
+            problems.append("COOKIE_SAMESITE must be one of none|lax|strict")
         return problems
 
 
