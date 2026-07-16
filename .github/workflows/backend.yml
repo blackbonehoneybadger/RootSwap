@@ -78,15 +78,19 @@ jobs:
       - name: Real PostgreSQL idempotency race + saga concurrency
         env:
           JWT_SECRET: test-jwt-secret-which-is-long-enough-000
-          ENCRYPTION_KEY: "test-encryption-key-32-bytes-long!!"
           TELEGRAM_BOT_TOKEN: "1234567:test-bot-token-for-hmac"
           PARTNER_WEBHOOK_SECRET: test-webhook-secret-which-is-long-enough
           PGPASSWORD: rootswap
         run: |
+          # This probe creates real orders that encrypt the wallet address, so a
+          # valid Fernet key is required. Generate one at runtime rather than
+          # committing a high-entropy literal (which a secret scanner flags).
+          export ENCRYPTION_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
           # A dedicated database so the concurrency probe never races the
           # pytest suite. Real MVCC + unique constraints are required to
           # exercise the two-worker INSERT race that SQLite cannot reproduce.
-          psql -h localhost -U rootswap -d rootswap -v ON_ERROR_STOP=1 \
+          # Connect to the service's default DB (rootswap_test) to create it.
+          psql -h localhost -U rootswap -d rootswap_test -v ON_ERROR_STOP=1 \
             -c "DROP DATABASE IF EXISTS rootswap_conc" \
             -c "CREATE DATABASE rootswap_conc"
           DATABASE_URL=postgresql+asyncpg://rootswap:rootswap@localhost:5432/rootswap_conc \
