@@ -65,8 +65,12 @@ Effect: new order creates return 503 (`EmergencyStopError`).
 
 ## Supported assets (code registry)
 
-Supported: RUB, USDT/TRC20, BTC, XMR  
-Planned/disabled: SOL, USDT/ERC20
+| Asset | Status |
+|-------|--------|
+| RUB, USDT/TRC20, BTC, XMR | **Sandbox only** (mock partner) |
+| ETH, TON, XRP, DOGE, DASH, BNB/BSC, USDT/USDC other nets | **Planned** |
+
+See `docs/TELEGRAM_SETUP.md` and `docs/PARTNER_ADAPTERS.md`.
 
 ## Security checklist (runtime)
 

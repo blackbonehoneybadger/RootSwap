@@ -6,10 +6,11 @@ on:
     branches:
       - main
       - cursor/rootswap-initial-e6c2
+      - feature/telegram-mini-app
 
 jobs:
   backend:
-    name: Backend (ruff + alembic + pytest)
+    name: Backend (ruff + alembic + pytest + pip-audit)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -54,7 +55,7 @@ jobs:
           cache-dependency-path: rootswap/backend/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt aiosqlite
+        run: pip install -r requirements.txt aiosqlite ruff pip-audit
 
       - name: Create test database
         env:
@@ -67,13 +68,21 @@ jobs:
         run: ruff check .
 
       - name: Alembic upgrade head
-        run: alembic upgrade head
+        run: |
+          alembic upgrade head
+          heads=$(alembic heads)
+          echo "$heads"
+          test "$(echo "$heads" | wc -l)" -eq 1
 
       - name: Pytest (full suite + Postgres MVP)
         run: PYTHONPATH=. pytest -v
 
+      - name: pip-audit
+        # ecdsa is a transitive dep of python-jose; no fixed release yet (tracked risk).
+        run: pip-audit -r requirements.txt --ignore-vuln PYSEC-2026-1325
+
   frontend:
-    name: Mini App (typecheck + build)
+    name: Mini App (typecheck + build + npm audit)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -95,3 +104,19 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: npm audit
+        run: npm audit --audit-level=high
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
