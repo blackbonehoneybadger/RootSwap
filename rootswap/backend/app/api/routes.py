@@ -168,23 +168,11 @@ def _require_dev_endpoints() -> None:
 
 @router.get("/assets")
 async def list_assets():
-    """Public list of supported / planned assets (honest MVP surface)."""
-    from app.core.assets import ASSETS, SUPPORTED_ROUTES
+    """Public list of sandbox / planned assets (honest surface)."""
+    from app.core.assets import ASSETS, SUPPORTED_ROUTES, asset_to_dict
 
     return {
-        "assets": [
-            {
-                "symbol": a.symbol,
-                "name": a.name,
-                "network": a.network,
-                "decimals": a.decimals,
-                "enabled": a.enabled,
-                "min_amount": a.min_amount,
-                "max_amount": a.max_amount,
-                "status": a.status,
-            }
-            for a in ASSETS.values()
-        ],
+        "assets": [asset_to_dict(a) for a in ASSETS.values()],
         "routes": [
             {
                 "direction": d.value,
@@ -195,6 +183,10 @@ async def list_assets():
             }
             for d, fa, fn, ta, tn in SUPPORTED_ROUTES
         ],
+        "note": (
+            "sandbox = mock partner demo only; planned = no adapter yet; "
+            "no REAL money rails in this build"
+        ),
     }
 
 
