@@ -1,25 +1,22 @@
 import type { Direction } from '../lib/types'
 import { openTelegramLink } from '../lib/telegram'
+import { useLocale } from '../lib/locale'
 
 const SUPPORT_URL = 'https://t.me/RootSwapSupport'
 
 interface HomeProps {
   onStart: (direction: Direction) => void
+  onOpenLegal?: (doc?: string) => void
 }
 
-export function Home({ onStart }: HomeProps) {
+export function Home({ onStart, onOpenLegal }: HomeProps) {
+  const { t } = useLocale()
+
   return (
     <div className="screen">
-      <div className="demo-banner" role="status">
-        DEMO MODE — no real money · демо-режим, без реальных денег
-      </div>
-
       <header className="home-header">
-        <h1 className="home-title">RootSwap</h1>
-        <p className="home-subtitle">
-          Агрегатор обменных сервисов · privacy-focused, non-custodial where
-          possible
-        </p>
+        <h1 className="home-title">{t('brand')}</h1>
+        <p className="home-subtitle">{t('aggregator')}</p>
       </header>
 
       <div className="home-actions">
@@ -28,7 +25,7 @@ export function Home({ onStart }: HomeProps) {
           className="btn btn-primary btn-big"
           onClick={() => onStart('BUY')}
         >
-          Купить
+          {t('buy')}
           <span className="btn-sub">RUB → USDT · BTC · XMR</span>
         </button>
         <button
@@ -36,28 +33,30 @@ export function Home({ onStart }: HomeProps) {
           className="btn btn-secondary btn-big"
           onClick={() => onStart('SELL')}
         >
-          Продать
+          {t('sell')}
           <span className="btn-sub">USDT · BTC · XMR → RUB</span>
         </button>
       </div>
 
       <div className="card notice-card">
-        <div className="notice-title">Конфиденциальность</div>
-        <p className="notice-text">
-          RootSwap — privacy-focused сервис: мы запрашиваем минимум данных и
-          работаем в режиме non-custodial where possible. Условия партнёров
-          могут отличаться (partner requirements may vary), а фиатные платежи
-          могут быть идентифицируемы (fiat payments may be identifiable).
-        </p>
+        <div className="notice-title">{t('demoBanner')}</div>
+        <p className="notice-text">{t('aggregator')}</p>
       </div>
 
       <div className="home-links">
         <button
           type="button"
           className="link-btn"
+          onClick={() => onOpenLegal?.()}
+        >
+          {t('legal')}
+        </button>
+        <button
+          type="button"
+          className="link-btn"
           onClick={() => openTelegramLink(SUPPORT_URL)}
         >
-          Поддержка
+          {t('support')}
         </button>
       </div>
     </div>

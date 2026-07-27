@@ -51,6 +51,7 @@ class Order(Base):
         SAEnum(QuoteSourceType, native_enum=False, length=8)
     )
     idempotency_key: Mapped[str] = mapped_column(String(64))
+    idempotency_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     wallet_address_encrypted: Mapped[str | None] = mapped_column(String(1024))
     wallet_address_masked: Mapped[str | None] = mapped_column(String(64))
     payout_details_encrypted: Mapped[str | None] = mapped_column(String(2048))

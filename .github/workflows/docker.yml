@@ -39,21 +39,70 @@ jobs:
 
       - name: Health smoke test (backend)
         run: |
-          docker network create smoke
-          docker run -d --name pg --network smoke \
+          set -euo pipefail
+          # Unique names per run so parallel/re-run jobs never collide, and a
+          # trap guarantees cleanup even on failure (no leaked containers/network).
+          RUN="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
+          NET="rootswap-smoke-${RUN}"
+          PG="rootswap-pg-${RUN}"
+          API="rootswap-api-${RUN}"
+          cleanup() {
+            docker rm -f "$API" "$PG" >/dev/null 2>&1 || true
+            docker network rm "$NET" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker network create "$NET"
+
+          docker run -d --name "$PG" --network "$NET" \
             -e POSTGRES_USER=rootswap -e POSTGRES_PASSWORD=rootswap -e POSTGRES_DB=rootswap \
             postgres:16-alpine
-          for i in $(seq 1 30); do
-            docker exec pg pg_isready -U rootswap && break || sleep 2
+
+          echo "Waiting for PostgreSQL to become ready..."
+          ready=0
+          for _ in $(seq 1 30); do
+            if docker exec "$PG" pg_isready -U rootswap -d rootswap >/dev/null 2>&1; then
+              ready=1; break
+            fi
+            sleep 2
           done
-          docker run -d --name api --network smoke -p 8000:8000 \
+          if [ "$ready" -ne 1 ]; then
+            echo "PostgreSQL never became ready"; docker logs "$PG"; exit 1
+          fi
+
+          docker run -d --name "$API" --network "$NET" -p 8000:8000 \
             -e ENVIRONMENT=development \
-            -e DATABASE_URL=postgresql+asyncpg://rootswap:rootswap@pg:5432/rootswap \
+            -e DATABASE_URL=postgresql+asyncpg://rootswap:rootswap@${PG}:5432/rootswap \
             -e JWT_SECRET=smoke-test-jwt-secret-32-chars-min! \
             -e PARTNER_WEBHOOK_SECRET=smoke-test-webhook-secret-32chars \
             -e RATE_LIMIT_ENABLED=false \
             rootswap-backend
-          for i in $(seq 1 30); do
-            curl -fsS http://localhost:8000/health && exit 0 || sleep 2
+
+          # Fail fast (with logs) if the container exits during startup —
+          # e.g. a failed migration or a crashing lifespan.
+          dump_and_fail() {
+            echo "=== docker ps -a ==="; docker ps -a
+            echo "=== api logs ==="; docker logs "$API" || true
+            echo "=== pg logs (tail) ==="; docker logs --tail 50 "$PG" || true
+            exit 1
+          }
+
+          echo "Waiting for backend /health ..."
+          ok=0
+          for _ in $(seq 1 40); do
+            if [ "$(docker inspect -f '{{.State.Running}}' "$API" 2>/dev/null)" != "true" ]; then
+              echo "backend container exited during startup"; dump_and_fail
+            fi
+            if curl -fsS http://localhost:8000/health >/dev/null 2>&1; then
+              ok=1; break
+            fi
+            sleep 2
           done
-          echo "health check failed"; docker logs api; exit 1
+          [ "$ok" -eq 1 ] || { echo "/health never became healthy"; dump_and_fail; }
+
+          echo "Checking backend /health/ready ..."
+          if ! curl -fsS http://localhost:8000/health/ready >/dev/null 2>&1; then
+            echo "/health/ready failed"; dump_and_fail
+          fi
+
+          echo "Backend health + readiness OK"

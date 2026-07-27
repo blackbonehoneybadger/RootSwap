@@ -1,0 +1,62 @@
+# gitleaks configuration for RootSwap.
+#
+# IMPORTANT: this EXTENDS the upstream default ruleset (useDefault = true) — it
+# never replaces it. Everything gitleaks catches by default keeps being caught.
+# Two project-specific rules are added because the defaults were verified to
+# MISS the two secrets that matter most here:
+#
+#   1. Telegram bot tokens — the crown-jewel credential for a Telegram Mini App.
+#   2. Fernet keys (ENCRYPTION_KEY) — protects wallet addresses and payout
+#      details at rest. The default `generic-api-key` rule only fires when the
+#      surrounding identifier contains a keyword like "key"/"secret"/"token",
+#      so a Fernet key stored in e.g. `FERNET = "..."` slipped through.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "rootswap-telegram-bot-token"
+description = "Telegram bot token (<bot_id>:<35-char secret>)"
+# Telegram bot tokens are `<8-10 digit bot id>:<auth token>`. The auth token is
+# ~34-35 chars in practice, so the length is kept as a tolerant range rather
+# than an exact count — an exact {35} was verified to miss real-world tokens.
+# The repo's own placeholders are covered by the allowlist regexes below.
+regex = '''\b[0-9]{8,10}:[A-Za-z0-9_-]{33,46}\b'''
+tags = ["telegram", "token"]
+
+[[rules]]
+id = "rootswap-fernet-key"
+description = "Fernet symmetric key (44-char urlsafe base64) in a quoted literal"
+# A Fernet key is exactly 32 raw bytes -> 43 urlsafe-base64 chars + '='.
+# Requiring the surrounding quotes keeps this off base64 payloads embedded in
+# lock files and asset digests.
+regex = '''["'][A-Za-z0-9_-]{43}=["']'''
+entropy = 4.5
+tags = ["encryption", "key"]
+
+  # Historical finding, knowingly accepted — NOT a blanket exception.
+  # commit 5d806b6 added a test-only Fernet key to backend/tests/conftest.py.
+  # It never protected production data; the working tree now generates the key
+  # at run time instead. The literal still exists in this (unmerged) branch's
+  # history. Scoped to that single commit so any NEW Fernet key is still caught.
+  # Remove this block once the branch history is rewritten to purge the blob.
+  [rules.allowlist]
+  description = "test-only Fernet key present in commit 5d806b6 (pre-remediation)"
+  commits = ["5d806b6dc42e92bc472fbda3f841006ac6629dfd"]
+  paths = ['''backend/tests/conftest\.py''']
+
+[allowlist]
+description = "Known-safe, non-secret values committed on purpose"
+paths = [
+  # Dependency lock files contain high-entropy integrity digests, never secrets.
+  '''mini-app/package-lock\.json''',
+]
+regexes = [
+  # .env.example ships EMPTY assignments only; documented placeholders and
+  # CI/dev-only throwaway values are intentionally in the tree. Kept narrow on
+  # purpose: whole test directories are deliberately NOT allowlisted, so a real
+  # secret accidentally committed under tests/ still fails the scan.
+  '''ci-validation-only-[a-z-]+''',
+  '''smoke-test-[a-z0-9-]+''',
+  '''DEV_TELEGRAM_BOT_TOKEN_PLACEHOLDER''',
+]

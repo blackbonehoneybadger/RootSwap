@@ -23,7 +23,21 @@ class UserOut(BaseModel):
 class TelegramAuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    # Double-submit CSRF token for cookie-authenticated /auth/refresh and
+    # /auth/logout. Also set as a readable cookie.
+    csrf_token: str
     user: UserOut
+
+
+class RefreshResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    csrf_token: str
+    user: UserOut
+
+
+class LogoutResponse(BaseModel):
+    ok: bool = True
 
 
 class QuoteRequest(BaseModel):

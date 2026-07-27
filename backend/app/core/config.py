@@ -39,7 +39,22 @@ class Settings(BaseSettings):
 
     jwt_secret: str = "insecure-dev-secret"
     jwt_algorithm: str = "HS256"
-    jwt_ttl_seconds: int = 24 * 3600
+    # Short-lived access token kept only in memory client-side.
+    jwt_ttl_seconds: int = 15 * 60
+    jwt_issuer: str = "rootswap"
+    jwt_audience: str = "rootswap-miniapp"
+
+    # Opaque refresh token: long-lived, HttpOnly cookie client-side, only its
+    # SHA-256 hash stored server-side. Rotated on every use.
+    refresh_ttl_seconds: int = 30 * 24 * 3600
+    refresh_cookie_name: str = "rs_refresh"
+    csrf_cookie_name: str = "rs_csrf"
+    # Cookies must be Secure in any real deployment (Telegram runs over HTTPS).
+    # Disabled only for local http tests via env.
+    cookie_secure: bool = True
+    # Telegram Mini App runs cross-site in a webview, so SameSite=None is needed
+    # to send the refresh cookie back. Secure is mandatory when SameSite=None.
+    cookie_samesite: str = "none"
 
     # Fernet key (urlsafe base64, 32 bytes). Required in production.
     encryption_key: str = ""
@@ -125,6 +140,10 @@ class Settings(BaseSettings):
             problems.append("ALLOW_SANDBOX_PARTNERS must be false in production")
         if self.debug:
             problems.append("DEBUG must be disabled in production")
+        if not self.cookie_secure:
+            problems.append("COOKIE_SECURE must be true in production")
+        if self.cookie_samesite.lower() not in {"none", "lax", "strict"}:
+            problems.append("COOKIE_SAMESITE must be one of none|lax|strict")
         return problems
 
 

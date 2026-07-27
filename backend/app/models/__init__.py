@@ -1,4 +1,5 @@
 from app.models.audit_log import AuditLog
+from app.models.auth_session import AuthSession
 from app.models.dispute import Dispute
 from app.models.ledger import LedgerEntry
 from app.models.order import Order
@@ -14,6 +15,7 @@ from app.models.webhook_event import WebhookEvent
 
 __all__ = [
     "AuditLog",
+    "AuthSession",
     "Dispute",
     "LedgerEntry",
     "Order",

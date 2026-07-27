@@ -4,6 +4,8 @@
  * manually. The pattern is deterministic per address, purely decorative.
  */
 
+import { useLocale } from '../lib/locale'
+
 const GRID = 17
 const CELL = 8
 
@@ -39,6 +41,7 @@ function Finder({ cx, cy }: { cx: number; cy: number }) {
 }
 
 export function QrPlaceholder({ value }: { value: string }) {
+  const { t } = useLocale()
   const seed = hashSeed(value)
   const size = GRID * CELL
   const cells: JSX.Element[] = []
@@ -53,20 +56,20 @@ export function QrPlaceholder({ value }: { value: string }) {
     }
   }
   return (
-    <div className="qr-placeholder" title="Скопируйте адрес вручную">
+    <div className="qr-placeholder" title={t('copyAddressManually')}>
       <svg
         viewBox={`0 0 ${size} ${size}`}
         width="140"
         height="140"
         role="img"
-        aria-label="Декоративный QR-заполнитель"
+        aria-label={t('copyAddressManually')}
       >
         {cells}
         <Finder cx={0} cy={0} />
         <Finder cx={GRID - 5} cy={0} />
         <Finder cx={0} cy={GRID - 5} />
       </svg>
-      <div className="qr-placeholder-note">скопируйте адрес вручную</div>
+      <div className="qr-placeholder-note">{t('copyAddressManually')}</div>
     </div>
   )
 }

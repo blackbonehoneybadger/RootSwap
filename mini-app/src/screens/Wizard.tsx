@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { createOrder, fetchQuotes, uuidv4 } from '../lib/api'
 import {
   BANKS,
   PAYMENT_METHODS,
   bankLabel,
+  isPositiveDecimalString,
   paymentMethodLabel,
   routesFor,
 } from '../lib/routes'
+import { useLocale } from '../lib/locale'
 import type {
   Direction,
   Order,
@@ -45,10 +47,13 @@ export function Wizard({
   onClose,
   onOrderCreated,
 }: WizardProps) {
+  const { t, locale } = useLocale()
   const [direction, setDirection] = useState<Direction>(
     prefill?.direction ?? initialDirection,
   )
   const routes = routesFor(direction)
+  const idempotencyKeyRef = useRef(uuidv4())
+  const submittingRef = useRef(false)
   const prefillRouteIdx = prefill
     ? Math.max(
         0,
@@ -76,16 +81,16 @@ export function Wizard({
 
   const route = routes[routeIdx] ?? routes[0]
 
-  const amountValid = useMemo(() => {
-    const v = amount.trim()
-    return /^\d+(\.\d+)?$/.test(v) && parseFloat(v) > 0
-  }, [amount])
+  const amountValid = useMemo(() => isPositiveDecimalString(amount), [amount])
 
   const walletValid = walletAddress.trim().length > 10
   const payoutValid = payoutAccount.trim().length > 5
+  const routeEnabled = route?.enabled !== false
 
   const detailsValid =
-    amountValid && (direction === 'BUY' ? walletValid : payoutValid)
+    amountValid &&
+    routeEnabled &&
+    (direction === 'BUY' ? walletValid : payoutValid)
 
   if (!route) return null
 
@@ -117,28 +122,41 @@ export function Wizard({
   }
 
   const loadQuotes = async () => {
+    if (!routeEnabled) {
+      setError(t('comingSoon'))
+      return
+    }
+    if (selectedQuote?.expires_at && Date.parse(selectedQuote.expires_at) < Date.now()) {
+      setError(t('quoteExpired'))
+    }
     setLoading(true)
     setError(null)
+    idempotencyKeyRef.current = uuidv4()
     try {
       const res = await fetchQuotes(buildQuoteRequest())
       setQuotes(res.quotes)
       setStep('quotes')
     } catch (e: unknown) {
       hapticError()
-      setError(e instanceof Error ? e.message : 'Не удалось получить котировки')
+      setError(e instanceof Error ? e.message : t('failedQuotes'))
     } finally {
       setLoading(false)
     }
   }
 
   const submitOrder = async () => {
-    if (!selectedQuote) return
+    if (!selectedQuote || submittingRef.current || loading) return
+    if (selectedQuote.expires_at && Date.parse(selectedQuote.expires_at) < Date.now()) {
+      setError(t('quoteExpired'))
+      return
+    }
+    submittingRef.current = true
     setLoading(true)
     setError(null)
     try {
       const order = await createOrder({
         quote_id: selectedQuote.quote_id,
-        idempotency_key: uuidv4(),
+        idempotency_key: idempotencyKeyRef.current,
         wallet_address: direction === 'BUY' ? walletAddress.trim() : null,
         payout_details:
           direction === 'SELL'
@@ -155,8 +173,9 @@ export function Wizard({
       onOrderCreated(order)
     } catch (e: unknown) {
       hapticError()
-      setError(e instanceof Error ? e.message : 'Не удалось создать ордер')
+      setError(e instanceof Error ? e.message : t('failedOrder'))
     } finally {
+      submittingRef.current = false
       setLoading(false)
     }
   }
@@ -175,23 +194,23 @@ export function Wizard({
   }
 
   const stepTitle: Record<Step, string> = {
-    route: direction === 'BUY' ? 'Покупка криптовалюты' : 'Продажа криптовалюты',
-    details: 'Детали обмена',
-    quotes: 'Выбор предложения',
-    confirm: 'Подтверждение',
+    route: direction === 'BUY' ? t('wizardBuyTitle') : t('wizardSellTitle'),
+    details: t('wizardDetailsTitle'),
+    quotes: t('wizardQuotesTitle'),
+    confirm: t('wizardConfirmTitle'),
   }
 
   return (
     <div className="screen wizard">
       <div className="wizard-header">
         <button type="button" className="back-btn" onClick={goBack}>
-          ← Назад
+          ← {t('back')}
         </button>
         <span className="wizard-title">{stepTitle[step]}</span>
       </div>
 
       <div className="demo-banner demo-banner-inline" role="status">
-        DEMO MODE — no real money
+        {t('demoModeInline')}
       </div>
 
       {error && <div className="error-box">{error}</div>}
@@ -207,7 +226,7 @@ export function Wizard({
                 setRouteIdx(0)
               }}
             >
-              Купить
+              {t('buyShort')}
             </button>
             <button
               type="button"
@@ -217,14 +236,12 @@ export function Wizard({
                 setRouteIdx(0)
               }}
             >
-              Продать
+              {t('sellShort')}
             </button>
           </div>
 
           <div className="muted field-label">
-            {direction === 'BUY'
-              ? 'Вы платите RUB и получаете:'
-              : 'Вы отправляете криптовалюту и получаете RUB:'}
+            {direction === 'BUY' ? t('payRubGet') : t('sendCryptoGetRub')}
           </div>
 
           <div className="route-list">
@@ -233,9 +250,14 @@ export function Wizard({
                 key={`${r.asset}-${r.network ?? ''}`}
                 type="button"
                 className={`card route-item ${i === routeIdx ? 'route-item-active' : ''}`}
-                onClick={() => setRouteIdx(i)}
+                disabled={!r.enabled}
+                onClick={() => r.enabled && setRouteIdx(i)}
               >
-                <span className="route-label">{r.label}</span>
+                <span className="route-label">
+                  {r.label}
+                  {r.status === 'planned' ? ` · ${t('comingSoon')}` : ''}
+                  {r.status === 'sandbox' ? ` · ${t('sandbox')}` : ''}
+                </span>
                 <span className="muted">
                   {direction === 'BUY' ? `RUB → ${r.asset}` : `${r.asset} → RUB`}
                 </span>
@@ -246,9 +268,10 @@ export function Wizard({
           <button
             type="button"
             className="btn btn-primary"
+            disabled={!routeEnabled}
             onClick={() => setStep('details')}
           >
-            Далее
+            {t('next')}
           </button>
         </div>
       )}
@@ -258,24 +281,24 @@ export function Wizard({
           <label className="field">
             <span className="field-label">
               {direction === 'BUY'
-                ? 'Сумма в RUB'
-                : `Сумма в ${route.asset}`}
+                ? t('amountInRub')
+                : t('amountInAsset', { asset: route.asset })}
             </span>
             <input
               className="input"
               inputMode="decimal"
-              placeholder={direction === 'BUY' ? 'например, 10000' : 'например, 100'}
+              placeholder={direction === 'BUY' ? t('egAmountBuy') : t('egAmountSell')}
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(',', '.'))}
             />
             {!amountValid && amount.trim() !== '' && (
-              <span className="field-error">Введите положительное число</span>
+              <span className="field-error">{t('enterPositive')}</span>
             )}
           </label>
 
           <label className="field">
             <span className="field-label">
-              {direction === 'BUY' ? 'Способ оплаты' : 'Способ получения RUB'}
+              {direction === 'BUY' ? t('paymentMethod') : t('payoutMethod')}
             </span>
             <select
               className="input"
@@ -284,14 +307,14 @@ export function Wizard({
             >
               {PAYMENT_METHODS.map((m) => (
                 <option key={m.value} value={m.value}>
-                  {m.label}
+                  {paymentMethodLabel(locale, m.value)}
                 </option>
               ))}
             </select>
           </label>
 
           <label className="field">
-            <span className="field-label">Банк</span>
+            <span className="field-label">{t('bank')}</span>
             <select
               className="input"
               value={bank}
@@ -299,7 +322,7 @@ export function Wizard({
             >
               {BANKS.map((b) => (
                 <option key={b} value={b}>
-                  {bankLabel(b)}
+                  {bankLabel(locale, b)}
                 </option>
               ))}
             </select>
@@ -308,45 +331,45 @@ export function Wizard({
           {direction === 'BUY' ? (
             <label className="field">
               <span className="field-label">
-                Адрес кошелька для получения {cryptoLabel}
+                {t('walletForAsset', { asset: cryptoLabel })}
               </span>
               <input
                 className="input input-mono"
-                placeholder={`Адрес в сети ${route.network ?? route.asset}`}
+                placeholder={t('addressInNetwork', {
+                  network: route.network ?? route.asset,
+                })}
                 value={walletAddress}
                 onChange={(e) => setWalletAddress(e.target.value)}
                 autoComplete="off"
                 spellCheck={false}
               />
               {!walletValid && walletAddress.trim() !== '' && (
-                <span className="field-error">
-                  Адрес выглядит слишком коротким (мин. 11 символов)
-                </span>
+                <span className="field-error">{t('addressTooShort')}</span>
               )}
               <span className="field-hint muted">
-                Внимательно проверьте адрес и сеть ({route.network ?? route.asset}).
+                {t('checkAddressNetwork', { network: route.network ?? route.asset })}
               </span>
             </label>
           ) : (
             <label className="field">
               <span className="field-label">
                 {paymentMethod === 'SBP'
-                  ? 'Телефон для СБП'
+                  ? t('phoneForSbp')
                   : paymentMethod === 'card_transfer'
-                    ? 'Номер карты'
-                    : 'Номер счёта'}
+                    ? t('cardNumber')
+                    : t('accountNumber')}
               </span>
               <input
                 className="input input-mono"
                 placeholder={
-                  paymentMethod === 'SBP' ? '+7 900 000-00-00' : 'Реквизиты для выплаты RUB'
+                  paymentMethod === 'SBP' ? '+7 900 000-00-00' : t('payoutPlaceholder')
                 }
                 value={payoutAccount}
                 onChange={(e) => setPayoutAccount(e.target.value)}
                 autoComplete="off"
               />
               {!payoutValid && payoutAccount.trim() !== '' && (
-                <span className="field-error">Реквизиты слишком короткие</span>
+                <span className="field-error">{t('detailsTooShort')}</span>
               )}
             </label>
           )}
@@ -357,7 +380,7 @@ export function Wizard({
             disabled={!detailsValid || loading}
             onClick={() => void loadQuotes()}
           >
-            {loading ? 'Ищем предложения…' : 'Получить котировки'}
+            {loading ? t('searchingOffers') : t('getQuotes')}
           </button>
         </div>
       )}
@@ -365,9 +388,7 @@ export function Wizard({
       {step === 'quotes' && (
         <div className="wizard-step">
           {quotes.length === 0 ? (
-            <div className="muted center-note">
-              Нет доступных предложений. Попробуйте изменить сумму.
-            </div>
+            <div className="muted center-note">{t('noOffers')}</div>
           ) : (
             <ul className="quote-list">
               {quotes.map((q) => (
@@ -380,7 +401,7 @@ export function Wizard({
                   <div className="quote-badges">
                     {q.labels.map((l) => (
                       <span key={l} className={`badge badge-label badge-label-${l}`}>
-                        {quoteLabelText(l)}
+                        {quoteLabelText(locale, l)}
                       </span>
                     ))}
                     {q.kyc_required && (
@@ -389,35 +410,36 @@ export function Wizard({
                   </div>
 
                   <div className="quote-amount">
-                    Вы получите:{' '}
+                    {t('youReceiveColon')}{' '}
                     <strong>
                       {fmtAmount(q.amount_out)}{' '}
                       {direction === 'BUY' ? route.asset : 'RUB'}
                     </strong>
                   </div>
                   <div className="muted quote-rate">
-                    Курс: {fmtAmount(q.exchange_rate)} · ~
-                    {q.estimated_time_minutes} мин · RootScore {q.root_score}
+                    {t('rate')}: {fmtAmount(q.exchange_rate)} · ~
+                    {q.estimated_time_minutes} {t('minutesShort')} · {t('rootScore')}{' '}
+                    {q.root_score}
                   </div>
 
                   <details className="fees-details">
                     <summary>
-                      Комиссии: {fmtAmount(q.total_fee)} всего
+                      {t('feesSummary', { total: fmtAmount(q.total_fee) })}
                     </summary>
                     <div className="fees-grid">
-                      <span className="muted">Сервис</span>
+                      <span className="muted">{t('feeService')}</span>
                       <span>{fmtAmount(q.service_fee)}</span>
-                      <span className="muted">Партнёр</span>
+                      <span className="muted">{t('feePartner')}</span>
                       <span>{fmtAmount(q.partner_fee)}</span>
-                      <span className="muted">Сеть</span>
+                      <span className="muted">{t('feeNetwork')}</span>
                       <span>{fmtAmount(q.network_fee)}</span>
-                      <span className="muted">Итого</span>
+                      <span className="muted">{t('feeTotal')}</span>
                       <span>{fmtAmount(q.total_fee)}</span>
                     </div>
                   </details>
 
                   <div className="quote-bottom">
-                    <Countdown expiresAt={q.expires_at} prefix="Действует:" />
+                    <Countdown expiresAt={q.expires_at} prefix={t('validFor')} />
                     <button
                       type="button"
                       className="btn btn-primary btn-small"
@@ -428,7 +450,7 @@ export function Wizard({
                         setStep('confirm')
                       }}
                     >
-                      Выбрать
+                      {t('choose')}
                     </button>
                   </div>
                 </li>
@@ -441,7 +463,7 @@ export function Wizard({
             disabled={loading}
             onClick={() => void loadQuotes()}
           >
-            {loading ? 'Обновляем…' : 'Обновить котировки'}
+            {loading ? t('updating') : t('refreshQuotes')}
           </button>
         </div>
       )}
@@ -450,78 +472,91 @@ export function Wizard({
         <div className="wizard-step">
           <div className="card confirm-card">
             <div className="confirm-row">
-              <span className="muted">Направление</span>
-              <span>{direction === 'BUY' ? 'Покупка' : 'Продажа'}</span>
+              <span className="muted">{t('directionLabel')}</span>
+              <span>{direction === 'BUY' ? t('purchase') : t('sale')}</span>
             </div>
             <div className="confirm-row">
-              <span className="muted">Актив</span>
+              <span className="muted">{t('asset')}</span>
               <span>{route.asset}</span>
             </div>
             <div className="confirm-row">
-              <span className="muted">Сеть</span>
+              <span className="muted">{t('network')}</span>
               <span>{route.network ?? '—'}</span>
             </div>
             <div className="confirm-row">
-              <span className="muted">Вы отдаёте</span>
+              <span className="muted">{t('youGive')}</span>
               <span>
                 {fmtAmount(selectedQuote.amount_in)}{' '}
                 {direction === 'BUY' ? 'RUB' : route.asset}
               </span>
             </div>
             <div className="confirm-row">
-              <span className="muted">Вы получите</span>
+              <span className="muted">{t('youReceive')}</span>
               <span>
                 {fmtAmount(selectedQuote.amount_out)}{' '}
                 {direction === 'BUY' ? route.asset : 'RUB'}
               </span>
             </div>
             <div className="confirm-row">
-              <span className="muted">Партнёр</span>
+              <span className="muted">{t('partner')}</span>
               <span>{selectedQuote.partner_name}</span>
             </div>
             <div className="confirm-row">
-              <span className="muted">Комиссия сервиса</span>
+              <span className="muted">{t('serviceFee')}</span>
               <span>{fmtAmount(selectedQuote.service_fee)}</span>
             </div>
             <div className="confirm-row">
-              <span className="muted">Комиссия партнёра</span>
+              <span className="muted">{t('partnerFee')}</span>
               <span>{fmtAmount(selectedQuote.partner_fee)}</span>
             </div>
             <div className="confirm-row">
-              <span className="muted">Комиссия сети</span>
+              <span className="muted">{t('networkFee')}</span>
               <span>{fmtAmount(selectedQuote.network_fee)}</span>
             </div>
             <div className="confirm-row">
-              <span className="muted">Комиссия итого</span>
+              <span className="muted">{t('totalFee')}</span>
               <span>{fmtAmount(selectedQuote.total_fee)}</span>
             </div>
             <div className="confirm-row">
-              <span className="muted">Источник котировки</span>
+              <span className="muted">{t('quoteSource')}</span>
               <SourceBadge source={selectedQuote.quote_source_type} />
             </div>
             {selectedQuote.kyc_required && (
               <div className="confirm-row">
                 <span className="muted">KYC</span>
-                <span>Партнёр может запросить верификацию</span>
+                <span>{t('kycMayRequire')}</span>
               </div>
             )}
+            {direction === 'BUY' && (
+              <div className="confirm-row">
+                <span className="muted">{t('wallet')}</span>
+                <span>
+                  {walletAddress.slice(0, 8)}…{walletAddress.slice(-6)}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="card notice-card">
+            <p className="notice-text">{t('wrongNetwork')}</p>
           </div>
 
           {direction === 'BUY' ? (
             <div className="card">
-              <div className="notice-title">Адрес получения ({cryptoLabel})</div>
+              <div className="notice-title">
+                {t('receivingAddressFor', { asset: cryptoLabel })}
+              </div>
               <div className="mono-block">{walletAddress.trim()}</div>
             </div>
           ) : (
             <div className="card">
-              <div className="notice-title">Реквизиты для выплаты RUB</div>
+              <div className="notice-title">{t('payoutRequisites')}</div>
               <div className="profile-row">
-                <span className="muted">Способ</span>
-                <span>{paymentMethodLabel(paymentMethod)}</span>
+                <span className="muted">{t('method')}</span>
+                <span>{paymentMethodLabel(locale, paymentMethod)}</span>
               </div>
               <div className="profile-row">
-                <span className="muted">Банк</span>
-                <span>{bankLabel(bank)}</span>
+                <span className="muted">{t('bank')}</span>
+                <span>{bankLabel(locale, bank)}</span>
               </div>
               <div className="mono-block">{payoutAccount.trim()}</div>
             </div>
@@ -529,7 +564,7 @@ export function Wizard({
 
           <Countdown
             expiresAt={selectedQuote.expires_at}
-            prefix="Котировка действует:"
+            prefix={t('quoteValidFor')}
           />
 
           <label className="checkbox-row">
@@ -538,7 +573,7 @@ export function Wizard({
               checked={checkedAddress}
               onChange={(e) => setCheckedAddress(e.target.checked)}
             />
-            <span>Я проверил адрес и сеть</span>
+            <span>{t('confirmedAddress')}</span>
           </label>
           <label className="checkbox-row">
             <input
@@ -546,7 +581,7 @@ export function Wizard({
               checked={checkedDemo}
               onChange={(e) => setCheckedDemo(e.target.checked)}
             />
-            <span>Я понимаю, что это DEMO-режим без реальных денег</span>
+            <span>{t('understandDemo')}</span>
           </label>
 
           <button
@@ -555,7 +590,7 @@ export function Wizard({
             disabled={!checkedAddress || !checkedDemo || loading}
             onClick={() => void submitOrder()}
           >
-            {loading ? 'Создаём ордер…' : 'Подтвердить обмен'}
+            {loading ? t('creatingOrder') : t('confirmExchange')}
           </button>
         </div>
       )}

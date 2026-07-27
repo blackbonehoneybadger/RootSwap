@@ -62,7 +62,9 @@ async def test_unsupported_route_rejected(client):
         },
         headers=headers,
     )
-    assert resp.status_code == 502
+    # Planned assets are rejected by the registry before partner fan-out.
+    assert resp.status_code == 422
+    assert "planned" in resp.text.lower()
 
 
 async def test_partner_quote_failure_excluded(client, partners):

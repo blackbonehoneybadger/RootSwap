@@ -17,15 +17,31 @@ B58_INDEX = {c: i for i, c in enumerate(B58_ALPHABET)}
 
 BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
+# Format-validated pairs (sandbox tradeable + planned for future enablement).
 SUPPORTED = {
     ("BTC", "BTC"),
     ("XMR", "XMR"),
     ("USDT", "TRC20"),
     ("USDT", "ERC20"),
+    ("USDT", "SOL"),
+    ("USDT", "TON"),
+    ("USDT", "BSC"),
+    ("USDC", "ERC20"),
+    ("USDC", "SOL"),
+    ("ETH", "ERC20"),
+    ("SOL", "SOL"),
+    ("TON", "TON"),
+    ("XRP", "XRP"),
+    ("DOGE", "DOGE"),
+    ("DASH", "DASH"),
+    ("BNB", "BSC"),
 }
 
-# assets that require a memo/tag on some networks (none of the launch assets do)
-MEMO_REQUIRED: set[tuple[str, str]] = set()
+# Memo/tag required when the asset is enabled for trading.
+MEMO_REQUIRED: set[tuple[str, str]] = {
+    ("XRP", "XRP"),
+    ("USDT", "TON"),
+}
 
 
 def _b58decode_check(value: str) -> bytes:
@@ -129,8 +145,51 @@ def validate_eth_address(address: str) -> None:
                     raise ValidationFailedError("EIP-55 checksum mismatch")
 
 
-def validate_wallet_address(asset: str, network: str | None, address: str) -> None:
-    """Raise ValidationFailedError when the address is not valid for asset/network."""
+SOL_B58 = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+TON_ADDR = re.compile(r"^(EQ|UQ|0:)[A-Za-z0-9_-]{46,}$")
+XRP_ADDR = re.compile(r"^r[1-9A-HJ-NP-Za-km-z]{24,34}$")
+DOGE_ADDR = re.compile(r"^D[5-9A-HJ-NP-U][1-9A-HJ-NP-Za-km-z]{32}$")
+DASH_ADDR = re.compile(r"^X[1-9A-HJ-NP-Za-km-z]{33}$")
+
+
+def validate_sol_address(address: str) -> None:
+    if not SOL_B58.fullmatch(address):
+        raise ValidationFailedError("invalid Solana address format")
+
+
+def validate_ton_address(address: str) -> None:
+    if not TON_ADDR.fullmatch(address):
+        raise ValidationFailedError("invalid TON address format")
+
+
+def validate_xrp_address(address: str) -> None:
+    if not XRP_ADDR.fullmatch(address):
+        raise ValidationFailedError("invalid XRP address format")
+
+
+def validate_doge_address(address: str) -> None:
+    if not DOGE_ADDR.fullmatch(address):
+        raise ValidationFailedError("invalid DOGE address format")
+
+
+def validate_dash_address(address: str) -> None:
+    if not DASH_ADDR.fullmatch(address):
+        raise ValidationFailedError("invalid DASH address format")
+
+
+def validate_wallet_address(
+    asset: str,
+    network: str | None,
+    address: str,
+    *,
+    memo: str | None = None,
+    require_memo_if_needed: bool = False,
+) -> None:
+    """Raise ValidationFailedError when the address is not valid for asset/network.
+
+    Checksum validation is applied for BTC/TRON/ETH where implemented.
+    Other networks use strict format validation until live partners land.
+    """
     asset = asset.upper()
     network = (network or asset).upper()
     if (asset, network) not in SUPPORTED:
@@ -146,7 +205,21 @@ def validate_wallet_address(asset: str, network: str | None, address: str) -> No
         validate_xmr_address(address)
     elif asset == "USDT" and network == "TRC20":
         validate_tron_address(address)
-    elif asset == "USDT" and network == "ERC20":
+    elif network in ("ERC20", "BSC") and asset in ("USDT", "USDC", "ETH", "BNB"):
         validate_eth_address(address)
-    if (asset, network) in MEMO_REQUIRED:
-        raise ValidationFailedError("memo/tag required for this network")
+    elif network == "SOL" and asset in ("USDT", "USDC", "SOL"):
+        validate_sol_address(address)
+    elif network == "TON" and asset in ("TON", "USDT"):
+        validate_ton_address(address)
+    elif asset == "XRP" and network == "XRP":
+        validate_xrp_address(address)
+    elif asset == "DOGE" and network == "DOGE":
+        validate_doge_address(address)
+    elif asset == "DASH" and network == "DASH":
+        validate_dash_address(address)
+    else:
+        raise ValidationFailedError(f"unsupported wallet validation for {asset}/{network}")
+
+    if require_memo_if_needed and (asset, network) in MEMO_REQUIRED:
+        if memo is None or not str(memo).strip():
+            raise ValidationFailedError("memo/tag required for this network")

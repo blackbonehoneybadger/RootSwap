@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, new_id, utcnow
@@ -9,9 +9,14 @@ from app.db.base import Base, new_id, utcnow
 
 class PaymentInstructions(Base):
     __tablename__ = "payment_instructions"
+    __table_args__ = (
+        UniqueConstraint("order_id", name="uq_payment_instructions_order_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    order_id: Mapped[str] = mapped_column(String(36), ForeignKey("orders.id"), index=True)
+    order_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("orders.id"), nullable=False, index=True
+    )
     partner_order_id: Mapped[str | None] = mapped_column(String(128))
     payment_method: Mapped[str] = mapped_column(String(32))
     bank_name: Mapped[str | None] = mapped_column(String(64))

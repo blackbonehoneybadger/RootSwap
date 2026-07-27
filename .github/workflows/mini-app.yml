@@ -29,6 +29,9 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: Unit tests (auth-once / no locale re-auth)
+        run: npm test
+
       - name: Production build
         run: npm run build
 

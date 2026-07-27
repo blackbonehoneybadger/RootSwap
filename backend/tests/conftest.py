@@ -5,15 +5,23 @@ import uuid
 from decimal import Decimal
 from urllib.parse import urlencode
 
+from cryptography.fernet import Fernet
+
 # Test environment must be configured before app modules are imported.
 TEST_BOT_TOKEN = "1234567:test-bot-token-for-hmac"
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", TEST_BOT_TOKEN)
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-which-is-long-enough-000")
+# Generated per test run: no real key material is ever committed to the repo.
+# Nothing persists encrypted data across runs, so a fresh key each time is safe.
+os.environ.setdefault("ENCRYPTION_KEY", Fernet.generate_key().decode())
 os.environ.setdefault("PARTNER_WEBHOOK_SECRET", "test-webhook-secret-which-is-long-enough")
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("POLLING_ENABLED", "false")
 os.environ.setdefault("NOTIFICATIONS_ENABLED", "false")
+# ASGI test client speaks http://; Secure cookies would never round-trip.
+os.environ.setdefault("COOKIE_SECURE", "false")
+os.environ.setdefault("COOKIE_SAMESITE", "lax")
 
 import pytest
 import pytest_asyncio

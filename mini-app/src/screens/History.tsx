@@ -9,6 +9,7 @@ import {
   statusTone,
 } from '../lib/format'
 import { SourceBadge } from '../components/SourceBadge'
+import { useLocale } from '../lib/locale'
 
 interface HistoryProps {
   refreshKey: number
@@ -17,6 +18,7 @@ interface HistoryProps {
 }
 
 export function History({ refreshKey, onOpenOrder, onRepeat }: HistoryProps) {
+  const { t, locale } = useLocale()
   const [orders, setOrders] = useState<Order[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -30,18 +32,18 @@ export function History({ refreshKey, onOpenOrder, onRepeat }: HistoryProps) {
         }
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки')
+        if (!cancelled) setError(e instanceof Error ? e.message : t('loadError'))
       })
     return () => {
       cancelled = true
     }
-  }, [refreshKey])
+  }, [refreshKey, t])
 
   if (error) {
     return (
       <div className="screen">
-        <h2 className="screen-title">История</h2>
-        <div className="error-box">Не удалось загрузить историю. {error}</div>
+        <h2 className="screen-title">{t('history')}</h2>
+        <div className="error-box">{t('historyLoadFailed')} {error}</div>
       </div>
     )
   }
@@ -49,19 +51,17 @@ export function History({ refreshKey, onOpenOrder, onRepeat }: HistoryProps) {
   if (orders === null) {
     return (
       <div className="screen">
-        <h2 className="screen-title">История</h2>
-        <div className="muted center-note">Загрузка…</div>
+        <h2 className="screen-title">{t('history')}</h2>
+        <div className="muted center-note">{t('loading')}</div>
       </div>
     )
   }
 
   return (
     <div className="screen">
-      <h2 className="screen-title">История</h2>
+      <h2 className="screen-title">{t('history')}</h2>
       {orders.length === 0 ? (
-        <div className="muted center-note">
-          Пока нет обменов. Начните с главного экрана.
-        </div>
+        <div className="muted center-note">{t('noExchangesYet')}</div>
       ) : (
         <ul className="order-list">
           {orders.map((o) => (
@@ -73,10 +73,10 @@ export function History({ refreshKey, onOpenOrder, onRepeat }: HistoryProps) {
               >
                 <div className="order-card-top">
                   <span className="order-dir">
-                    {o.direction === 'BUY' ? 'Покупка' : 'Продажа'}
+                    {o.direction === 'BUY' ? t('purchase') : t('sale')}
                   </span>
                   <span className={`chip chip-${statusTone(o.status)}`}>
-                    {statusLabel(o.status)}
+                    {statusLabel(locale, o.status)}
                   </span>
                 </div>
                 <div className="order-card-amounts">
@@ -86,7 +86,8 @@ export function History({ refreshKey, onOpenOrder, onRepeat }: HistoryProps) {
                   {assetWithNetwork(o.to_asset, o.to_network)}
                 </div>
                 <div className="order-card-meta muted">
-                  {fmtDate(o.created_at)} <SourceBadge source={o.quote_source_type} />
+                  {fmtDate(o.created_at, locale)}{' '}
+                  <SourceBadge source={o.quote_source_type} />
                 </div>
               </button>
               <div className="order-card-actions">
@@ -95,7 +96,7 @@ export function History({ refreshKey, onOpenOrder, onRepeat }: HistoryProps) {
                   className="btn btn-secondary btn-small"
                   onClick={() => onRepeat(o)}
                 >
-                  Повторить
+                  {t('repeat')}
                 </button>
               </div>
             </li>

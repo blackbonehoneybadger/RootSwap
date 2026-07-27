@@ -12,6 +12,8 @@ def _prod_settings(**overrides) -> Settings:
         allow_mock_partners=False,
         allow_sandbox_partners=False,
         debug=False,
+        cookie_secure=True,
+        cookie_samesite="none",
         _env_file=None,
     )
     base.update(overrides)
@@ -55,6 +57,16 @@ def test_mock_partners_block_production():
 def test_sandbox_partners_block_production():
     problems = _prod_settings(allow_sandbox_partners=True).validate_for_production()
     assert any("SANDBOX" in p for p in problems)
+
+
+def test_insecure_cookie_blocks_production():
+    problems = _prod_settings(cookie_secure=False).validate_for_production()
+    assert any("COOKIE_SECURE" in p for p in problems)
+
+
+def test_invalid_samesite_blocks_production():
+    problems = _prod_settings(cookie_samesite="bogus").validate_for_production()
+    assert any("COOKIE_SAMESITE" in p for p in problems)
 
 
 def test_dev_environment_not_blocked():

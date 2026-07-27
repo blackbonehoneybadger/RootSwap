@@ -1,27 +1,48 @@
+import type { Locale } from './i18n'
 import type { OrderStatus, QuoteSourceType } from './types'
 
-/** Russian labels for order statuses. */
-export const STATUS_LABELS: Record<OrderStatus, string> = {
-  CREATED: 'Создан',
-  QUOTE_CONFIRMED: 'Курс зафиксирован',
-  AWAITING_PAYMENT: 'Ожидает оплаты',
-  PAYMENT_DETECTED: 'Платёж обнаружен',
-  PAYMENT_CONFIRMING: 'Подтверждение платежа',
-  PROCESSING: 'Обработка',
-  PAYOUT_SENT: 'Выплата отправлена',
-  COMPLETED: 'Завершён',
-  EXPIRED: 'Истёк',
-  FAILED: 'Ошибка',
-  DISPUTED: 'Открыт спор',
-  REFUND_REQUESTED: 'Запрошен возврат',
-  REFUND_PROCESSING: 'Возврат в обработке',
-  REFUNDED: 'Возврат выполнен',
-  REFUND_FAILED: 'Ошибка возврата',
-  CANCELLED: 'Отменён',
+/** Localized labels for order statuses (stable status codes on the wire). */
+export const STATUS_LABELS: Record<Locale, Record<OrderStatus, string>> = {
+  ru: {
+    CREATED: 'Создан',
+    QUOTE_CONFIRMED: 'Курс зафиксирован',
+    AWAITING_PAYMENT: 'Ожидает оплаты',
+    PAYMENT_DETECTED: 'Платёж обнаружен',
+    PAYMENT_CONFIRMING: 'Подтверждение платежа',
+    PROCESSING: 'Обработка',
+    PAYOUT_SENT: 'Выплата отправлена',
+    COMPLETED: 'Завершён',
+    EXPIRED: 'Истёк',
+    FAILED: 'Ошибка',
+    DISPUTED: 'Открыт спор',
+    REFUND_REQUESTED: 'Запрошен возврат',
+    REFUND_PROCESSING: 'Возврат в обработке',
+    REFUNDED: 'Возврат выполнен',
+    REFUND_FAILED: 'Ошибка возврата',
+    CANCELLED: 'Отменён',
+  },
+  en: {
+    CREATED: 'Created',
+    QUOTE_CONFIRMED: 'Rate locked',
+    AWAITING_PAYMENT: 'Awaiting payment',
+    PAYMENT_DETECTED: 'Payment detected',
+    PAYMENT_CONFIRMING: 'Confirming payment',
+    PROCESSING: 'Processing',
+    PAYOUT_SENT: 'Payout sent',
+    COMPLETED: 'Completed',
+    EXPIRED: 'Expired',
+    FAILED: 'Failed',
+    DISPUTED: 'Disputed',
+    REFUND_REQUESTED: 'Refund requested',
+    REFUND_PROCESSING: 'Refund processing',
+    REFUNDED: 'Refunded',
+    REFUND_FAILED: 'Refund failed',
+    CANCELLED: 'Cancelled',
+  },
 }
 
-export function statusLabel(status: string): string {
-  return STATUS_LABELS[status as OrderStatus] ?? status
+export function statusLabel(locale: Locale, status: string): string {
+  return STATUS_LABELS[locale][status as OrderStatus] ?? status
 }
 
 /** Statuses after which polling can stop. */
@@ -64,15 +85,22 @@ export const REFUND_STATUSES: ReadonlySet<OrderStatus> = new Set<OrderStatus>([
   'REFUND_FAILED',
 ])
 
-/** Russian labels for quote badges. */
-export const QUOTE_LABELS: Record<string, string> = {
-  best: 'Лучший',
-  fastest: 'Самый быстрый',
-  lowest_fee: 'Мин. комиссия',
+/** Localized labels for quote badges (stable badge codes on the wire). */
+export const QUOTE_LABELS: Record<Locale, Record<string, string>> = {
+  ru: {
+    best: 'Лучший',
+    fastest: 'Самый быстрый',
+    lowest_fee: 'Мин. комиссия',
+  },
+  en: {
+    best: 'Best',
+    fastest: 'Fastest',
+    lowest_fee: 'Lowest fee',
+  },
 }
 
-export function quoteLabelText(label: string): string {
-  return QUOTE_LABELS[label] ?? label
+export function quoteLabelText(locale: Locale, label: string): string {
+  return QUOTE_LABELS[locale][label] ?? label
 }
 
 export function sourceTypeLabel(source: QuoteSourceType): string {
@@ -97,11 +125,11 @@ export function fmtAmount(value: string | null | undefined): string {
   return value
 }
 
-export function fmtDate(iso: string | null | undefined): string {
+export function fmtDate(iso: string | null | undefined, locale: Locale = 'ru'): string {
   if (!iso) return '—'
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString('ru-RU', {
+  return d.toLocaleString(locale === 'en' ? 'en-GB' : 'ru-RU', {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',

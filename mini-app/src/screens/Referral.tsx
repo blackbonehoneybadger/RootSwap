@@ -3,23 +3,34 @@ import { getReferralStats } from '../lib/api'
 import type { ReferralStats } from '../lib/types'
 import { CopyButton } from '../components/CopyButton'
 import { fmtAmount, fmtDate } from '../lib/format'
+import { useLocale } from '../lib/locale'
+import type { Locale } from '../lib/i18n'
 
 const BOT_USERNAME: string = import.meta.env.VITE_BOT_USERNAME || 'RootSwapBot'
 
-const REWARD_STATUS_LABELS: Record<string, string> = {
-  pending: 'Ожидает',
-  PENDING: 'Ожидает',
-  confirmed: 'Подтверждена',
-  CONFIRMED: 'Подтверждена',
-  frozen: 'Заморожена',
-  FROZEN: 'Заморожена',
-  paid: 'Выплачена',
-  PAID: 'Выплачена',
-  cancelled: 'Отменена',
-  CANCELLED: 'Отменена',
+const REWARD_STATUS_LABELS: Record<Locale, Record<string, string>> = {
+  ru: {
+    pending: 'Ожидает',
+    confirmed: 'Подтверждена',
+    frozen: 'Заморожена',
+    paid: 'Выплачена',
+    cancelled: 'Отменена',
+  },
+  en: {
+    pending: 'Pending',
+    confirmed: 'Confirmed',
+    frozen: 'Frozen',
+    paid: 'Paid',
+    cancelled: 'Cancelled',
+  },
+}
+
+function rewardStatusLabel(locale: Locale, status: string): string {
+  return REWARD_STATUS_LABELS[locale][status.toLowerCase()] ?? status
 }
 
 export function Referral() {
+  const { t, locale } = useLocale()
   const [stats, setStats] = useState<ReferralStats | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -35,7 +46,7 @@ export function Referral() {
         }
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки')
+        if (!cancelled) setError(e instanceof Error ? e.message : t('loadError'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -43,13 +54,13 @@ export function Referral() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   if (loading) {
     return (
       <div className="screen">
-        <h2 className="screen-title">Рефералы</h2>
-        <div className="muted center-note">Загрузка…</div>
+        <h2 className="screen-title">{t('referral')}</h2>
+        <div className="muted center-note">{t('loading')}</div>
       </div>
     )
   }
@@ -57,8 +68,8 @@ export function Referral() {
   if (error || !stats) {
     return (
       <div className="screen">
-        <h2 className="screen-title">Рефералы</h2>
-        <div className="error-box">Не удалось загрузить статистику. {error}</div>
+        <h2 className="screen-title">{t('referral')}</h2>
+        <div className="error-box">{t('referralStatsFailed')} {error}</div>
       </div>
     )
   }
@@ -67,10 +78,10 @@ export function Referral() {
 
   return (
     <div className="screen">
-      <h2 className="screen-title">Рефералы</h2>
+      <h2 className="screen-title">{t('referral')}</h2>
 
       <div className="card">
-        <div className="notice-title">Ваша ссылка</div>
+        <div className="notice-title">{t('yourLink')}</div>
         <div className="mono-block referral-link">{link}</div>
         <CopyButton value={link} />
       </div>
@@ -78,18 +89,18 @@ export function Referral() {
       <div className="stat-grid">
         <div className="card stat-card">
           <div className="stat-value">{stats.referred_count}</div>
-          <div className="muted">приглашено</div>
+          <div className="muted">{t('invited')}</div>
         </div>
         <div className="card stat-card">
           <div className="stat-value">{stats.active_referred_count}</div>
-          <div className="muted">активных</div>
+          <div className="muted">{t('activeShort')}</div>
         </div>
       </div>
 
       <div className="card">
-        <div className="notice-title">Всего наград</div>
+        <div className="notice-title">{t('totalRewards')}</div>
         {stats.total_rewards.length === 0 ? (
-          <div className="muted">Пока нет наград</div>
+          <div className="muted">{t('noRewardsYet')}</div>
         ) : (
           stats.total_rewards.map((r) => (
             <div className="profile-row" key={r.currency}>
@@ -101,9 +112,9 @@ export function Referral() {
       </div>
 
       <div className="card">
-        <div className="notice-title">Начисления</div>
+        <div className="notice-title">{t('accruals')}</div>
         {stats.rewards.length === 0 ? (
-          <div className="muted">Список пуст</div>
+          <div className="muted">{t('emptyList')}</div>
         ) : (
           <ul className="reward-list">
             {stats.rewards.map((r, i) => (
@@ -113,11 +124,12 @@ export function Referral() {
                     +{fmtAmount(r.reward_amount)} {r.reward_currency}
                   </span>
                   <span className={`chip chip-reward-${r.status.toLowerCase()}`}>
-                    {REWARD_STATUS_LABELS[r.status] ?? r.status}
+                    {rewardStatusLabel(locale, r.status)}
                   </span>
                 </div>
                 <div className="muted reward-meta">
-                  Ордер {r.order_id.slice(0, 8)}… · {fmtDate(r.created_at)}
+                  {t('orderWord')} {r.order_id.slice(0, 8)}… ·{' '}
+                  {fmtDate(r.created_at, locale)}
                 </div>
               </li>
             ))}
